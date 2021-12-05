@@ -2,3 +2,4 @@
 *.core
 env-display
 objdir/*
+~.o

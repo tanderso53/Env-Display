@@ -11,8 +11,6 @@
 #include <poll.h>
 #include <fcntl.h>
 
-#define PARSE_FILE "/dev/stdin"
-
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
@@ -62,7 +60,7 @@ void parseData(int pdfd)
 	clearData();
 }
 
-void popFields()
+void popFields(const char* parsefile)
 {
 	// int wfd = open("/dev/stdout", O_RDWR);
 	// char msg[] = "hello";
@@ -70,7 +68,7 @@ void popFields()
 	// close(wfd);
 
 	struct pollfd pfd = {
-		.fd = open(PARSE_FILE, O_RDWR),
+		.fd = open(parsefile, O_RDWR),
 		.events = POLLIN
 	};
 
@@ -174,7 +172,7 @@ void formExit()
 	endwin();
 }
 
-int formRun()
+int formRun(const char* openfile)
 {
 	initscr();
 	win_main = newwin(30, /* Lines */
@@ -192,7 +190,7 @@ int formRun()
 	assert(win_main);
 	assert(win_form);
 
-	popFields();
+	popFields(openfile);
 	form = new_form(fields);
 	assert(form);
 
@@ -216,7 +214,7 @@ int formRun()
 
 	for (;;) {
 		struct pollfd pfd = {
-			.fd = open(PARSE_FILE, O_RDWR),
+			.fd = open(openfile, O_RDWR),
 			.events = POLLIN
 		};
 
@@ -246,8 +244,21 @@ void signalHandler(int sig)
 	exit(0);
 }
 
-int main()
+int main(int argc, const char** argv)
 {
+	char buf[128];
+
+	if (argc > 1) {
+		strncpy(buf, argv[1], 128);
+	}
+	else if (argc > 2) {
+		fprintf(stderr, "Error: Too many arguments");
+		exit(1);
+	}
+	else {
+		strncpy(buf, "/dev/stdin", 128);
+	}
+
 	signal(SIGINT, signalHandler);
-	return formRun();
+	return formRun(buf);
 }
