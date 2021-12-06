@@ -1,8 +1,8 @@
 #####################################################################
 #                                                                   #
-#                            FILM MANAGER                           #
-#                  A program for logging photographic               #
-#                            film records                           #
+#                            Env Display                            #
+#                 A program to display environmental                #
+#                data from Kitty Comfort-like devices               #
 #                                                                   #
 #####################################################################
 
@@ -36,7 +36,7 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-# film-manager Makefile
+# env-display Makefile
 
 srcdir		=	./src
 OBJDIR		:=	./objdir
@@ -59,11 +59,13 @@ INSTROBJ	:=	$(OBJS:.o=.oi)
 H		=	jsonparse.h
 LICENSE		=	./LICENSE
 
-ifneq ("$(shell ls -a . | grep -c .git)", 0)
-CFLAGS		+=	-DFM_VERSION="\"$(shell $(VC) describe --long)\""
+IS_REPO		:=	$(shell git -C . | echo $$?)
+
+ifeq ($(IS_REPO), 0)
+CFLAGS		+=	-DVM_VERSION="\"$(shell $(VC) describe --long)\""
 endif
 
-.PHONY: all clean install coverage
+.PHONY: all clean install coverage gitcheck
 
 $(OBJDIR)/%.o: $(srcdir)/%.c $(addprefix $(srcdir)/,$(H))
 	@echo "*** BUILDING $@ ***"

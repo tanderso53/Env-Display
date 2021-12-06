@@ -13,6 +13,10 @@
 #include <fcntl.h>
 #include <time.h>
 
+#ifndef VM_VERSION
+#define VM_VERSION "Unknown"
+#endif /* #ifndef VM_VERSION */
+
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
@@ -208,7 +212,9 @@ int formRun(const char* openfile)
 	}
 
 	/* Title Header */
-	mvwprintw(win_main, 1, 2, "Environmental Data");
+	mvwprintw(win_main, 1, 2, "Environmental Data Display Program,"
+		  " Version: %s",
+		VM_VERSION);
 
 	/* Set cursor to invisible if supported */
 	curs_set(0);
