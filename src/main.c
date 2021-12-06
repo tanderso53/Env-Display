@@ -1,4 +1,5 @@
 #include "jsonparse.h"
+
 #include <form.h>
 #include <math.h>
 #include <assert.h>
@@ -10,6 +11,7 @@
 #include <unistd.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <time.h>
 
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
@@ -20,17 +22,30 @@ static FORM* form = NULL;
 static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
 
+void lastUpdatedTime()
+{
+	char output[32];
+	struct tm timstruct;
+	time_t curtime = time(NULL);
+
+	/* Load current time into buffer */
+	localtime_r(&curtime, &timstruct);
+	snprintf(output, 32, "%02d/%02d/%04d %02d:%02d:%02d %s",
+		 timstruct.tm_mon, timstruct.tm_mday,
+		 timstruct.tm_year + 1900, timstruct.tm_hour,
+		 timstruct.tm_min, timstruct.tm_sec,
+		 timstruct.tm_zone);
+
+	/* Print current time to bottom of screen */
+	assert(win_main);
+	mvwprintw(win_main, 28, 2, "Last update: %s", output);
+}
+
 void parseData(int pdfd)
 {
 	char buff[1024];
 
-	//for (int i = 0; i < 1023; ++i) {
 	int readresult = read(pdfd, buff, 1023);
-
-	// if (readresult == 0) {
-	//   buff[i + 1] = '\0';
-	//   break;
-	// }
 
 	if (readresult < 0) {
 		perror("Error reading file: ");
@@ -38,7 +53,7 @@ void parseData(int pdfd)
 	}
 
 	buff[readresult] = '\0';
-	//}
+	lastUpdatedTime();
 
 	initializeData(buff);
 	struct datafield* df = NULL;
@@ -62,16 +77,12 @@ void parseData(int pdfd)
 
 void popFields(const char* parsefile)
 {
-	// int wfd = open("/dev/stdout", O_RDWR);
-	// char msg[] = "hello";
-	// write(wfd, msg, strlen(msg));
-	// close(wfd);
-
 	struct pollfd pfd = {
 		.fd = open(parsefile, O_RDWR),
 		.events = POLLIN
 	};
 
+	printf("Polling for environmental data...\n");
 	int pollresult = poll(&pfd, 1, 60000);
 
 	if (pollresult < 0) {
@@ -88,13 +99,7 @@ void popFields(const char* parsefile)
 	char buff[1024];
 	struct datafield* dfields = NULL;
 
-	//for (int i = 0; i < 1023; ++i) {
 	int readresult = read(pfd.fd, buff, 1023);
-
-	// if (readresult == 0) {
-	//   buff[i + 1] = '\0';
-	//   break;
-	// }
 
 	if (readresult < 0) {
 		perror("Error reading file: ");
@@ -102,9 +107,7 @@ void popFields(const char* parsefile)
 	}
 
 	buff[readresult] = '\0';
-
-	//buff[i] = cbuff;
-	//}
+	lastUpdatedTime();
 
 	initializeData(buff);
 	nfields = numDataFields();
@@ -204,8 +207,11 @@ int formRun(const char* openfile)
 		return 1;
 	}
 
-	// Title Header
+	/* Title Header */
 	mvwprintw(win_main, 1, 2, "Environmental Data");
+
+	/* Set cursor to invisible if supported */
+	curs_set(0);
 
 	post_form(form);
 	refresh();
@@ -252,7 +258,7 @@ int main(int argc, const char** argv)
 		strncpy(buf, argv[1], 128);
 	}
 	else if (argc > 2) {
-		fprintf(stderr, "Error: Too many arguments");
+		fprintf(stderr, "Error: Too many arguments\n");
 		exit(1);
 	}
 	else {
