@@ -252,8 +252,14 @@ int formRun(const char* openfile)
 void signalHandler(int sig)
 {
 	formExit();
-	printf("Received signal %d\n", sig);
-	exit(0);
+	printf("Received signal %d: %s\n", sig, strsignal(sig));
+
+	if (sig == SIGINT || sig == SIGTERM) {
+		exit(0);
+	}
+	else {
+		exit(1);
+	}
 }
 
 int main(int argc, const char** argv)
@@ -272,5 +278,8 @@ int main(int argc, const char** argv)
 	}
 
 	signal(SIGINT, signalHandler);
+	signal(SIGTERM, signalHandler);
+	signal(SIGABRT, signalHandler);
+	signal(SIGPIPE, signalHandler);
 	return formRun(buf);
 }

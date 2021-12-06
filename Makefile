@@ -59,9 +59,9 @@ INSTROBJ	:=	$(OBJS:.o=.oi)
 H		=	jsonparse.h
 LICENSE		=	./LICENSE
 
-IS_REPO		:=	$(shell git -C . | echo $$?)
+IS_REPO		:=	$(shell if [ -d ./.git ]; then echo "1"; else echo "0"; fi)
 
-ifeq ($(IS_REPO), 0)
+ifeq ($(IS_REPO), 1)
 CFLAGS		+=	-DVM_VERSION="\"$(shell $(VC) describe --long)\""
 endif
 
