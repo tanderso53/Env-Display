@@ -50,13 +50,13 @@ CXXFLAGS	=	-std=c++17
 LDLIBS		=	-ljsoncpp -lncurses -lform -lc
 LDFLAGS		=	-L/usr/local/lib
 APP		=	env-display
-C_SRCS		=	main.c
+C_SRCS		=	main.c display-driver.c
 CXX_SRCS	=	jsonparse.cpp
 C_OBJS		=	$(addprefix $(OBJDIR)/,$(C_SRCS:.c=.o))
 CXX_OBJS	=	$(addprefix $(OBJDIR)/,$(CXX_SRCS:.cpp=.o))
 OBJS		:=	$(C_OBJS) $(CXX_OBJS)
 INSTROBJ	:=	$(OBJS:.o=.oi)
-H		=	jsonparse.h
+H		=	jsonparse.h display-driver.h
 LICENSE		=	./LICENSE
 
 IS_REPO		:=	$(shell if [ -d ./.git ]; then echo "1"; else echo "0"; fi)

@@ -5,7 +5,9 @@
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+#include <csignal>
 
+#include <iostream>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -26,7 +28,15 @@ void initializeData(const char* data)
   std::istream& blah = dstr;
   Json::Value ds;
 
-  blah >> ds;
+  try {
+    blah >> ds;
+  }
+  catch (std::exception& e) {
+    std::cerr << "In initializeData(): Failed Json parse with: "
+	      << e.what() << '\n'
+	      << "Data is: " << data << '\n';
+    raise(SIGABRT);
+  }
 
   //Json::Value& d = ds["data"];
 
