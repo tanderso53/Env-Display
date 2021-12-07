@@ -45,17 +45,21 @@ OBJDIR		:=	./objdir
 CC		=	clang
 CXX		=	clang++
 VC		=	git
+PROFILER	=	llvm-profdata merge
+COV		=	llvm-cov
+
 CFLAGS		=	-Wall -g -I/usr/local/include
 CXXFLAGS	=	-std=c++17
 LDLIBS		=	-ljsoncpp -lncurses -lform -lc
 LDFLAGS		=	-L/usr/local/lib
+
 APP		=	env-display
 C_SRCS		=	main.c display-driver.c
 CXX_SRCS	=	jsonparse.cpp
 C_OBJS		=	$(addprefix $(OBJDIR)/,$(C_SRCS:.c=.o))
 CXX_OBJS	=	$(addprefix $(OBJDIR)/,$(CXX_SRCS:.cpp=.o))
 OBJS		:=	$(C_OBJS) $(CXX_OBJS)
-INSTROBJ	:=	$(OBJS:.o=.oi)
+INSTROBJ	:=	$(addprefix $(OBJDIR)/,display-driver.oi jsonparse.oi tests.oi)
 H		=	jsonparse.h display-driver.h
 LICENSE		=	./LICENSE
 
@@ -65,7 +69,7 @@ ifeq ($(IS_REPO), 1)
 CFLAGS		+=	-DVM_VERSION="\"$(shell $(VC) describe --long)\""
 endif
 
-.PHONY: all clean install coverage gitcheck
+.PHONY: all clean install coverage
 
 $(OBJDIR)/%.o: $(srcdir)/%.c $(addprefix $(srcdir)/,$(H))
 	@echo "*** BUILDING $@ ***"
@@ -85,6 +89,17 @@ $(OBJDIR)/%.oi: $(srcdir)/%.cpp $(addprefix $(srcdir)/,$(H))
 	$(CXX) -c ${CFLAGS} ${CXXFLAGS} -fprofile-instr-generate \
 		-fcoverage-mapping -o $@ $<
 
+%.profraw: %
+	@echo "**** RUNNING TESTS $< ****"
+	LLVM_PROFILE_FILE="$@" ./$<
+
+%.profdata: %.profraw
+	$(PROFILER) -sparse $< -o $@
+
+coverage.json: test-suite.profdata
+	$(COV) export ./test-suite -instr-profile=$< > $@
+	$(COV) report ./test-suite -instr-profile=$<
+
 $(APP): $(OBJS)
 	@echo "*** BUILDING $@ ***"
 	$(CXX) ${CFLAGS} ${LDFLAGS} ${LDLIBS} -o $@ $(OBJS)
@@ -93,13 +108,16 @@ $(APP): $(OBJS)
 all: $(APP)
 
 clean:
-	$(RM) $(APP)
+	$(RM) $(APP) test-suite coverage.json test-suite.profraw \
+		test-suite.profdata
 	$(RM) -R $(OBJDIR)
 
-coverage: $(INSTROBJ)
+test-suite: $(INSTROBJ)
 	@echo "*** BUILDING $@ ***"
 	$(CXX) ${CFLAGS} ${LDFLAGS} ${LDLIBS} \
-		-fprofile-instr-generate -fcoverage-mapping -o $@ $(OBJS)
+		-fprofile-instr-generate -fcoverage-mapping -o $@ $^
+
+coverage: coverage.json
 
 $(OBJS): | $(OBJDIR)
 
