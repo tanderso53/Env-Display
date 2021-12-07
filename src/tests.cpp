@@ -77,7 +77,7 @@ bool jsonparse_unit()
     strcmp(df[1].unit, "degC")
   };
 
-  for (int i = 0; i < sizeof(cmpr)/sizeof(cmpr[0]); ++i) {
+  for (unsigned int i = 0; i < sizeof(cmpr)/sizeof(cmpr[0]); ++i) {
     if (cmpr[i] != 0) {
       std::cout << "FAILURE\n";
       ret = 0;
