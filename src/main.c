@@ -13,7 +13,13 @@
 #include <netdb.h>
 #include <netinet/in.h>
 
+#ifndef APP_BUFFERSIZE
 #define APP_BUFFERSIZE 128
+#endif /* #ifndef APP_BUFFERSIZE */
+
+#ifndef VM_VERSION
+#define VM_VERSION "Unknown"
+#endif /* #ifndef VM_VERSION */
 
 extern char* optarg;
 extern int optind, opterr, optopt;
@@ -29,11 +35,34 @@ enum AppMode {
 	AM_UDP
 } appmode = AM_STDIN;
 
+void printUsage(int argc, char* const argv[])
+{
+	assert(argc >= 0);
+
+	printf("Usage:\n"
+	       "%1$s\n"
+	       "%1$s -f <filename>\n"
+	       "%1$s -u <host> -p <port>\n"
+	       "\n"
+	       "Calling with no options will read from stdin. Alternatively -f or -u\n"
+	       "can be supplied to read from a file or from a UDP socket.\n"
+	       "\n"
+	       "Options:\n"
+	       "-f <filename>	A filename to read json env data from\n"
+	       "-u <host>	A hostname or ip address to connect to via UDP. Cannot\n"
+	       "		be used with the -f option\n"
+	       "-p <port>	A port number to connect to on the remote port. Must be\n"
+	       "		used with the -u option\n"
+	       "-h		Print usage message, then exit\n"
+	       "-V		Print version information, then exit\n",
+	       argv[0]);
+}
+
 void parseOptions(int argc, char* const argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "f:u:p:")) != -1) {
+	while ((c = getopt(argc, argv, "f:u:p:hV")) != -1) {
 		switch(c) {
 
 		case 'f':
@@ -69,10 +98,19 @@ void parseOptions(int argc, char* const argv[])
 			strncpy(portbuffer, optarg, APP_BUFFERSIZE);
 			break;
 
+		case 'h':
+			/* Print usage and exit */
+			printUsage(argc, argv);
+			exit(0);
+
+		case 'V':
+			/* Print fersion and exit */
+			printf("%s\n", VM_VERSION);
+			exit(0);
+
 		case '?':
-			fprintf(stderr, "Error: "
-				"Bad options\n");
-			break;
+			printUsage(argc, argv);
+			exit(1);
 
 		default:
 			break;
