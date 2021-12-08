@@ -71,6 +71,8 @@ endif
 
 .PHONY: all clean install coverage
 
+all: $(APP)
+
 $(OBJDIR)/%.o: $(srcdir)/%.c $(addprefix $(srcdir)/,$(H))
 	@echo "*** BUILDING $@ ***"
 	$(CC) -c ${CFLAGS} -o $@ $<
@@ -96,7 +98,7 @@ $(OBJDIR)/%.oi: $(srcdir)/%.cpp $(addprefix $(srcdir)/,$(H))
 %.profdata: %.profraw
 	$(PROFILER) -sparse $< -o $@
 
-coverage.json: test-suite.profdata
+coverage.json: test-suite.profdata test-suite.profraw
 	$(COV) export ./test-suite -instr-profile=$< > $@
 	$(COV) report ./test-suite -instr-profile=$<
 
@@ -104,8 +106,6 @@ $(APP): $(OBJS)
 	@echo "*** BUILDING $@ ***"
 	$(CXX) ${CFLAGS} ${LDFLAGS} ${LDLIBS} -o $@ $(OBJS)
 	@echo "Complete! Install with \"make install\""
-
-all: $(APP)
 
 clean:
 	$(RM) $(APP) test-suite coverage.json test-suite.profraw \
@@ -120,6 +120,8 @@ test-suite: $(INSTROBJ)
 coverage: coverage.json
 
 $(OBJS): | $(OBJDIR)
+
+$(INSTROBJ): | $(OBJDIR)
 
 $(OBJDIR):
 	mkdir $(OBJDIR)
