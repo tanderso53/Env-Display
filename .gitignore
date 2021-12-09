@@ -3,3 +3,7 @@
 env-display
 objdir/*
 ~.o
+test-suite
+*.profdata
+*.profraw
+*.json

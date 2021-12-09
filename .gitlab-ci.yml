@@ -1,0 +1,23 @@
+build:
+  stage: build
+  script:
+    - gmake
+  artifacts:
+    paths:
+      - env-display
+    expire_in: 1 week
+test:
+  stage: test
+  script:
+    - gmake test-suite
+    - ./test-suite
+  artifacts:
+    paths:
+        - test-suite
+    expire_in: 1 week
+coverage:
+    stage: test
+    script:
+        - gmake -k coverage
+        - jq .data[-1].totals.lines.percent coverage.json
+    coverage: '/^\d+\.\d+$/'
