@@ -3,6 +3,9 @@
 #include <iostream>
 #include <cstring>
 
+#define BOOST_TEST_MODULE env_display_test
+#include <boost/test/included/unit_test.hpp>
+
 // Sample data string
 const char* infile = "{\"status\": {\"isWarmedUp\": false, \"CCS811\": \"ok\", "
   "\"localIP\": \"192.168.1.211\", \"sentmillis\": 1602543}, \"data\": "
@@ -16,116 +19,31 @@ const char* infile = "{\"status\": {\"isWarmedUp\": false, \"CCS811\": \"ok\", "
 
 // json parse module unit
 
-bool jsonparse_unit()
+BOOST_AUTO_TEST_CASE(jsonparse_test)
 {
-  int nfields, ret = 1;
   struct datafield* df = NULL;
 
-  std::cout << "JSONPARSE UNIT ---- BEGIN\n";
-
   // Initialization test
-  try {
-    std::cout << "Attempting to initialize ... ";
-    initializeData(infile);
-  }
-  catch (std::exception& e) {
-    std::cout << "FAILURE\n" << "Got " << e.what();
-    return 0;
-  }
-
-  std::cout << "SUCCESS\n";
+  BOOST_REQUIRE_NO_THROW(initializeData(infile));
 
   // Counting test
-  std::cout << "Checking parse count (5): ";
+  BOOST_TEST(numDataFields() == 5);
 
-  if ((nfields = numDataFields()) != 5) {
-    std::cout << "Got " << nfields << " ... FAILURE\n";
-    if (ret) {
-      ret = 0;
-    }
-  }
-
-  std::cout << " ... SUCCESS\n";
-
-  df = getDataDump(df);
+  BOOST_REQUIRE_NO_THROW(df = getDataDump(df));
 
   // Check that data object is not null
-  std::cout << "Checking for null datadump ... ";
-
-  if (df) {
-    std::cout << "SUCCESS\n";
-  }
-  else {
-    std::cout << "FAILURE\n";
-
-    if (ret) {
-      return 0;
-    }
-  }
+  BOOST_TEST(df);
 
   // Check that data content is correct
-  std::cout << "Checking for correct parsing ... ";
-
-  int cmpr[] = {
-    strcmp(df[0].name, "ammonia"),
-    strcmp(df[0].value, "423"),
-    strcmp(df[0].time, "1602546"),
-    strcmp(df[0].unit, "counts"),
-    strcmp(df[1].name, "temp"),
-    strcmp(df[1].value, "23.18"),
-    strcmp(df[1].time, "1602551"),
-    strcmp(df[1].unit, "degC")
-  };
-
-  for (unsigned int i = 0; i < sizeof(cmpr)/sizeof(cmpr[0]); ++i) {
-    if (cmpr[i] != 0) {
-      std::cout << "FAILURE\n";
-      ret = 0;
-      break;
-    }
-  }
-
-  if (ret) {
-    std::cout << "SUCCESS\n";
-  }
+  BOOST_TEST_WARN(strcmp(df[0].name, "ammonia") == 0);
+  BOOST_TEST_WARN(strcmp(df[0].value, "423") == 0);
+  BOOST_TEST_WARN(strcmp(df[0].time, "1602546") == 0);
+  BOOST_TEST_WARN(strcmp(df[0].unit, "counts") == 0);
+  BOOST_TEST_WARN(strcmp(df[1].name, "temp") == 0);
+  BOOST_TEST_WARN(strcmp(df[1].value, "23.18") == 0);
+  BOOST_TEST_WARN(strcmp(df[1].time, "1602551") == 0);
+  BOOST_TEST_WARN(strcmp(df[1].unit, "degC") == 0);
 
   // Check clearing of data
-  std::cout << "Checking clearData(): ... ";
-  clearData();
-
-  if (!df) {
-    std::cout << "SUCCESS\n";
-  }
-  else {
-    std::cout << "FAILURE\n";
-    ret = 0;
-  }
-
-  return ret;
-}
-
-int main()
-{
-  int succeeded = 0, total = 0;
-
-  std::cout << "Initiating Tests:\n";
-
-  if (jsonparse_unit()) {
-    std::cout << " Jsonparse Unit ... SUCCESS\n";
-    succeeded++;
-  }
-  else {
-    std::cout << " Jsonparse Unit ... FAILURE\n";
-  }
-
-  total++;
-
-  // Print results
-  std::cout << succeeded << " Succeeded out of " << total << '\n';
-
-  if (succeeded < total) {
-    return 1;
-  }
-
-  return 0;
+  BOOST_CHECK_NO_THROW(clearData());
 }

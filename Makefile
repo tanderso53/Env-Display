@@ -59,7 +59,7 @@ CXX_SRCS	=	jsonparse.cpp
 C_OBJS		=	$(addprefix $(OBJDIR)/,$(C_SRCS:.c=.o))
 CXX_OBJS	=	$(addprefix $(OBJDIR)/,$(CXX_SRCS:.cpp=.o))
 OBJS		:=	$(C_OBJS) $(CXX_OBJS)
-INSTROBJ	:=	$(addprefix $(OBJDIR)/,display-driver.oi jsonparse.oi tests.oi)
+INSTROBJ	:=	$(addprefix $(OBJDIR)/,display-driver.oi jsonparse.oi tests.o)
 H		=	jsonparse.h display-driver.h
 LICENSE		=	./LICENSE
 
