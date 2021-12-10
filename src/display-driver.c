@@ -41,8 +41,8 @@ void lastUpdatedTime()
 		 timstruct.tm_zone);
 
 	/* Print current time to bottom of screen */
-	assert(win_main);
-	mvwprintw(win_main, 28, 2, "Last update: %s", output);
+	if (win_main)
+		mvwprintw(win_main, 28, 2, "Last update: %s", output);
 }
 
 void parseData(int pdfd)
@@ -99,7 +99,7 @@ void popFields(int pdfd)
 	}
 
 	if (pollresult == 0) {
-		fprintf(fopen("/dev/stderr", "w"), "Failed to get "
+		fprintf(stderr, "Failed to get "
 			"initial data from stream\n");
 		raise(SIGINT);
 	}

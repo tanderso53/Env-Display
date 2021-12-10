@@ -1,8 +1,16 @@
 #ifndef DISPLAY_DRIVER_H
 #define DISPLAY_DRIVER_H
 
-int formRun(int pdfd);
+#ifdef __cplusplus
+extern "C" {
+#endif /* #ifdef __cplusplus */
 
-void formExit();
+	int formRun(int pdfd);
+
+	void formExit();
+
+#ifdef __cplusplus
+}
+#endif /* #ifdef __cplusplus */
 
 #endif /* #ifndef DISPLAY_DRIVER_H */

@@ -1,7 +1,12 @@
 #include "jsonparse.h"
+#include "display-driver.h"
 
 #include <iostream>
 #include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
+
+extern "C" void popFields(int pdfd);
 
 #define BOOST_TEST_MODULE env_display_test
 #include <boost/test/included/unit_test.hpp>
@@ -35,15 +40,49 @@ BOOST_AUTO_TEST_CASE(jsonparse_test)
   BOOST_TEST(df);
 
   // Check that data content is correct
-  BOOST_TEST_WARN(strcmp(df[0].name, "ammonia") == 0);
-  BOOST_TEST_WARN(strcmp(df[0].value, "423") == 0);
-  BOOST_TEST_WARN(strcmp(df[0].time, "1602546") == 0);
-  BOOST_TEST_WARN(strcmp(df[0].unit, "counts") == 0);
-  BOOST_TEST_WARN(strcmp(df[1].name, "temp") == 0);
-  BOOST_TEST_WARN(strcmp(df[1].value, "23.18") == 0);
-  BOOST_TEST_WARN(strcmp(df[1].time, "1602551") == 0);
-  BOOST_TEST_WARN(strcmp(df[1].unit, "degC") == 0);
+  BOOST_WARN(strcmp(df[0].name, "ammonia") == 0);
+  BOOST_WARN(strcmp(df[0].value, "423") == 0);
+  BOOST_WARN(strcmp(df[0].time, "1602546") == 0);
+  BOOST_WARN(strcmp(df[0].unit, "counts") == 0);
+  BOOST_WARN(strcmp(df[1].name, "temp") == 0);
+  BOOST_WARN(strcmp(df[1].value, "23.18") == 0);
+  BOOST_WARN(strcmp(df[1].time, "1602551") == 0);
+  BOOST_WARN(strcmp(df[1].unit, "degC") == 0);
 
   // Check clearing of data
   BOOST_CHECK_NO_THROW(clearData());
+}
+
+// Forms module unit
+
+BOOST_AUTO_TEST_CASE(forms_display_test)
+{
+  int fd;
+  const char* tempfile = "/tmp/env-display_test";
+
+  fd = open(tempfile, O_CREAT | O_RDWR);
+
+  if (fd < 0) {
+    BOOST_TEST_WARN(false, "Could not open file for testing");
+    return;
+  }
+
+  if (write(fd, infile, strlen(infile)) < 0) {
+    BOOST_TEST_WARN(false, "Could not write temp file");
+    close(fd);
+    return;
+  }
+  close(fd);
+
+  fd = open(tempfile, O_CREAT | O_RDWR);
+
+  if (fd < 0) {
+    BOOST_TEST_WARN(false, "Could not open file for testing");
+    return;
+  }
+
+  BOOST_CHECK_NO_THROW(popFields(fd));
+  BOOST_CHECK_NO_THROW(formExit());
+
+  close(fd);
 }
