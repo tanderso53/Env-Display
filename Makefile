@@ -99,8 +99,12 @@ $(OBJDIR)/%.oi: $(srcdir)/%.cpp $(addprefix $(srcdir)/,$(H))
 	$(PROFILER) -sparse $< -o $@
 
 coverage.json: test-suite.profdata test-suite.profraw
-	$(COV) export ./test-suite -instr-profile=$< > $@
-	$(COV) report ./test-suite -instr-profile=$<
+	$(COV) export ./test-suite -instr-profile=$< \
+		-ignore-filename-regex="/usr/local/include/.*" > $@
+
+coverage.report: test-suite.profdata test-suite.profraw
+	$(COV) report ./test-suite -instr-profile=$< \
+		-ignore-filename-regex="/usr/local/include/.*" > $@
 
 $(APP): $(OBJS)
 	@echo "*** BUILDING $@ ***"
@@ -109,7 +113,7 @@ $(APP): $(OBJS)
 
 clean:
 	$(RM) $(APP) test-suite coverage.json test-suite.profraw \
-		test-suite.profdata
+		test-suite.profdata coverage.report
 	$(RM) -R $(OBJDIR)
 
 test-suite: $(INSTROBJ)
@@ -117,7 +121,8 @@ test-suite: $(INSTROBJ)
 	$(CXX) ${CFLAGS} ${LDFLAGS} ${LDLIBS} \
 		-fprofile-instr-generate -fcoverage-mapping -o $@ $^
 
-coverage: coverage.json
+coverage: coverage.json coverage.report
+	cat coverage.report
 
 $(OBJS): | $(OBJDIR)
 
