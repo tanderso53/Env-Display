@@ -3,8 +3,7 @@
 
 #include <iostream>
 #include <cstring>
-#include <fcntl.h>
-#include <unistd.h>
+#include <cstdio>
 
 extern "C" void popFields(int pdfd);
 
@@ -57,32 +56,40 @@ BOOST_AUTO_TEST_CASE(jsonparse_test)
 
 BOOST_AUTO_TEST_CASE(forms_display_test)
 {
-  int fd;
-  const char* tempfile = "/tmp/env-display_test";
+  FILE* fptr;
+  const char* tempfile = "/tmp/env-display_test.json";
 
-  fd = open(tempfile, O_CREAT | O_RDWR);
+  // Write sample string to temporary file
+  fptr = fopen(tempfile, "w");
 
-  if (fd < 0) {
+  if (fptr == NULL) {
+    std::cout << "Received error " << errno << ": "
+	      << strerror(errno) << '\n';
     BOOST_TEST_WARN(false, "Could not open file for testing");
     return;
   }
 
-  if (write(fd, infile, strlen(infile)) < 0) {
+  if (fwrite(infile, sizeof(infile[0]), strlen(infile), fptr) == 0) {
+    int error = ferror(fptr);
+    std::cout << "Received error " << error << ": "
+	      <<strerror(error) << '\n';
     BOOST_TEST_WARN(false, "Could not write temp file");
-    close(fd);
+    fclose(fptr);
     return;
   }
-  close(fd);
 
-  fd = open(tempfile, O_CREAT | O_RDWR);
+  fclose(fptr);
 
-  if (fd < 0) {
+  // Read sample string from temporary file
+  fptr = fopen(tempfile, "r");
+
+  if (fptr == NULL) {
     BOOST_TEST_WARN(false, "Could not open file for testing");
     return;
   }
 
-  BOOST_CHECK_NO_THROW(popFields(fd));
+  BOOST_CHECK_NO_THROW(fileno(fptr));
   BOOST_CHECK_NO_THROW(formExit());
 
-  close(fd);
+  fclose(fptr);
 }
