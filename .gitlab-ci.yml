@@ -11,10 +11,6 @@ test:
   script:
     - gmake test-suite
     - ./test-suite
-  artifacts:
-    paths:
-        - test-suite
-    expire_in: 1 week
 coverage:
     stage: test
     script:
