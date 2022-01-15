@@ -35,7 +35,7 @@ void lastUpdatedTime()
 	/* Load current time into buffer */
 	localtime_r(&curtime, &timstruct);
 	snprintf(output, 32, "%02d/%02d/%04d %02d:%02d:%02d %s",
-		 timstruct.tm_mon, timstruct.tm_mday,
+		 timstruct.tm_mon + 1, timstruct.tm_mday,
 		 timstruct.tm_year + 1900, timstruct.tm_hour,
 		 timstruct.tm_min, timstruct.tm_sec,
 		 timstruct.tm_zone);
