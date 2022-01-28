@@ -179,11 +179,6 @@ void signalHandler(int sig)
 	if (sig == SIGINT || sig == SIGTERM) {
 		exit(0);
 	}
-	else if (sig == SIGWINCH) {
-		fprintf(stderr, "Window cannot be resized..."
-			"exiting\n");
-		exit(1);
-	}
 
 	exit(1);
 }
@@ -195,7 +190,6 @@ int main(int argc, char* const argv[])
 	signal(SIGTERM, signalHandler);
 	signal(SIGABRT, signalHandler);
 	signal(SIGPIPE, signalHandler);
-	signal(SIGWINCH, signalHandler);
 
 	/* Read options */
 	parseOptions(argc, argv);
