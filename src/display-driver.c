@@ -25,6 +25,10 @@ static unsigned int nfields = 0;
 static FORM* form = NULL;
 static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
+static uint8_t ignore_poll_error = 0;
+
+static void formResizeWindow();
+static void formHandleWinch(int sig);
 
 void lastUpdatedTime()
 {
@@ -155,6 +159,23 @@ void popFields(int pdfd)
 	/* close(pfd.fd); */
 }
 
+static void formSetupWindow()
+{
+	assert(win_main);
+	assert(win_form);
+
+	box(win_main, 0, 0);
+	box(win_form, 0, 0);
+
+	/* Title Header */
+	mvwprintw(win_main, 1, 2, "Environmental Data Display Program,"
+		  " Version: %s",
+		VM_VERSION);
+
+	/* Set cursor to invisible if supported */
+	curs_set(0);
+}
+
 void formDriver(int ch)
 {
 	switch (ch) {
@@ -163,6 +184,21 @@ void formDriver(int ch)
 		break;
 
 	}
+}
+
+static void formResizeWindow()
+{
+	endwin();
+	refresh();
+	clear();
+
+	formSetupWindow();
+
+	assert(form);
+
+	refresh();
+	wrefresh(win_main);
+	wrefresh(win_form);
 }
 
 void formExit()
@@ -185,18 +221,18 @@ void formExit()
 
 int formRun(int pdfd)
 {
+	signal(SIGWINCH, formHandleWinch);
+
 	initscr();
 	win_main = newwin(30, /* Lines */
 			  80, /* Cols */
 			  0, /* X */
 			  0); /* Y */
-	box(win_main, 0, 0);
 	win_form = derwin(win_main,
 			  26, /* Lines */
 			  76, /* Cols */
 			  2, /* X */
 			  2); /* Y */
-	box(win_form, 0, 0);
 
 	assert(win_main);
 	assert(win_form);
@@ -215,13 +251,7 @@ int formRun(int pdfd)
 		return 1;
 	}
 
-	/* Title Header */
-	mvwprintw(win_main, 1, 2, "Environmental Data Display Program,"
-		  " Version: %s",
-		VM_VERSION);
-
-	/* Set cursor to invisible if supported */
-	curs_set(0);
+	formSetupWindow();
 
 	post_form(form);
 	refresh();
@@ -237,6 +267,14 @@ int formRun(int pdfd)
 		int pollresult = poll(&pfd, 1, 30000);
 
 		if (pollresult < 0) {
+
+			/* Dirty hack to prevent poll errors on window
+			 * size changes */
+			if (ignore_poll_error) {
+				ignore_poll_error = 0;
+				continue;
+			}
+
 			perror("Critical Error polling file: ");
 			formExit();
 			exit(1);
@@ -251,4 +289,11 @@ int formRun(int pdfd)
 		wrefresh(win_form);
 		/* close(pfd.fd); */
 	}
+}
+
+static void formHandleWinch(int sig)
+{
+	assert(sig == SIGWINCH);
+	ignore_poll_error = 1;
+	formResizeWindow();
 }
