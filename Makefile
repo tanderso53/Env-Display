@@ -66,7 +66,7 @@ LICENSE		=	./LICENSE
 IS_REPO		:=	$(shell if [ -d ./.git ]; then echo "1"; else echo "0"; fi)
 
 ifeq ($(IS_REPO), 1)
-CFLAGS		+=	-DVM_VERSION="\"$(shell $(VC) describe --long)\""
+CFLAGS		+=	-DVM_VERSION="\"$(shell $(VC) describe --always)\""
 endif
 
 .PHONY: all clean install coverage
