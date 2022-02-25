@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <termios.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
@@ -28,11 +29,13 @@ static char filebuffer[APP_BUFFERSIZE];
 static char ipbuffer[APP_BUFFERSIZE];
 static char portbuffer[APP_BUFFERSIZE];
 static int fd;
+static speed_t baud = B9600;
 
 enum AppMode {
-	AM_STDIN,
-	AM_FILE,
-	AM_UDP
+	AM_STDIN = 0x00,
+	AM_TTY = 0x01,
+	AM_FILE = 0x02,
+	AM_UDP = 0x04
 } appmode = AM_STDIN;
 
 void printUsage(int argc, char* const argv[])
@@ -43,6 +46,9 @@ void printUsage(int argc, char* const argv[])
 	       "%1$s\n"
 	       "%1$s -f <filename>\n"
 	       "%1$s -u <host> -p <port>\n"
+	       "%1$s -s <serial> [-b <baud>]\n"
+	       "%1$s -h\n"
+	       "%1$s -V\n"
 	       "\n"
 	       "Calling with no options will read from stdin. Alternatively -f or -u\n"
 	       "can be supplied to read from a file or from a UDP socket.\n"
@@ -53,6 +59,8 @@ void printUsage(int argc, char* const argv[])
 	       "		be used with the -f option\n"
 	       "-p <port>	A port number to connect to on the remote port. Must be\n"
 	       "		used with the -u option\n"
+	       "-s <serial>	Special file path for a serial device\n"
+	       "-b <baud>	Baud rate for serial connection (default: 9600)\n"
 	       "-h		Print usage message, then exit\n"
 	       "-V		Print version information, then exit\n",
 	       argv[0]);
@@ -62,7 +70,7 @@ void parseOptions(int argc, char* const argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "f:u:p:hV")) != -1) {
+	while ((c = getopt(argc, argv, "f:u:p:s:b:hV")) != -1) {
 		switch(c) {
 
 		case 'f':
@@ -96,6 +104,43 @@ void parseOptions(int argc, char* const argv[])
 			}
 
 			strncpy(portbuffer, optarg, APP_BUFFERSIZE);
+			break;
+
+		case 's':
+			/* Can only set TTY mode if no other major
+			 * mode is set */
+			if (appmode & (AM_FILE | AM_UDP)) {
+				fprintf(stderr, "Error: "
+					"%c cannot be used with u or "
+					"f\n", c);
+				exit(1);
+			}
+
+			/* Store the TTY special path in the
+			 * filebuffer */
+			strncpy(filebuffer, optarg, APP_BUFFERSIZE);
+			appmode = AM_TTY;
+			break;
+
+		case 'b':
+			/* Can only set baud in TTY mode */
+			if (appmode & (AM_FILE | AM_UDP)) {
+				fprintf(stderr, "Error: "
+					"%c cannot be used with u or "
+					"f\n", c);
+				exit(1);
+			}
+
+			baud = strtoll(optarg, NULL, 10);
+
+			/* Check that baud is non-zero after str to
+			 * int conversion */
+			if (baud == 0) {
+				fprintf(stderr, "Error: "
+					"Invalid baud %s\n", optarg);
+				exit(1);
+			}
+
 			break;
 
 		case 'h':
@@ -165,6 +210,51 @@ int remoteConnect()
 	return s;
 }
 
+int ttyConnect()
+{
+	int ret;
+	struct termios ts;
+
+	fd = open(filebuffer, APP_BUFFERSIZE, O_RDWR);
+
+	if (fd < 0) {
+		perror("ERROR: When opening TTY: ");
+
+		return -1;
+	}
+
+	ret = tcgetattr(fd, &ts);
+
+	if (ret < 0) {
+		perror("ERROR: When getting TTY properties: ");
+	}
+
+	ret = cfsetspeed(&ts, baud);
+
+	if (ret < 0) {
+		perror("ERROR: When setting TTY speed: ");
+
+		return ret;
+	}
+
+	/* Set baud and turn off flow control */
+	ts.c_cflag &= ~CRTSCTS;
+	ts.c_cflag |= CREAD | CLOCAL;
+	ts.c_iflag &= ~(IXON | IXOFF | IXANY);
+	ts.c_iflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+	ts.c_iflag |= ICRNL;
+
+	ret = tcsetattr(fd, TCSANOW, &ts);
+
+	if (ret < 0) {
+		perror("ERROR: Setting TTY settings: ");
+
+		return ret;
+	}
+
+	return 0;
+}
+
 void closeDescriptor()
 {
 	close(fd);
@@ -225,6 +315,14 @@ int main(int argc, char* const argv[])
 				strerror(errno));
 			return 1;
 		}
+		break;
+	case AM_TTY:
+		if (ttyConnect() < 0) {
+			fprintf(stderr, "Failed to open %s\n",
+				filebuffer);
+			return 1;
+		}
+
 		break;
 	}
 
