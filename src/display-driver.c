@@ -31,6 +31,9 @@ static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
 static uint8_t ignore_poll_error = 0;
 
+/* Sizes */
+static unsigned int form_height = 24;
+
 static void formResizeWindow();
 static void formHandleWinch(int sig);
 
@@ -146,6 +149,8 @@ void popFields(int pdfd)
 	for (size_t i = 0; i < numSensors(); ++i) {
 		nfields += numDataFields(i);
 	}
+
+	nfields = nfields < form_height / 2 ? nfields : form_height / 2;
 
 	assert(dfields);
 
@@ -266,7 +271,7 @@ int formRun(int pdfd)
 		return 1;
 	}
 
-	if (set_form_sub(form, derwin(win_form, 24, 74, 1, 1)) != 0) {
+	if (set_form_sub(form, derwin(win_form, form_height, 74, 1, 1)) != 0) {
 		perror("Critical Error setting sub window: ");
 		return 1;
 	}
