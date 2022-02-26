@@ -72,8 +72,8 @@ void initializeData(const char* data)
 
     parsedvalues = parsedlist(o.size());
 
-    for (auto it = parsedvalues.begin(); it != parsedvalues.end(); ++it) {
-      loadData(o, *it);
+    for (unsigned int i = 0; i < o.size(); ++i) {
+      loadData(o[i], parsedvalues[i]);
     }
 
   } else {

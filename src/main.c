@@ -242,7 +242,7 @@ int ttyConnect()
 	ts.c_cflag |= CREAD | CLOCAL;
 	ts.c_iflag &= ~(IXON | IXOFF | IXANY);
 	ts.c_iflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-	ts.c_iflag |= ICRNL;
+	/* ts.c_iflag |= ICRNL; */
 
 	ret = tcsetattr(fd, TCSANOW, &ts);
 

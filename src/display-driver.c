@@ -17,6 +17,10 @@
 #define VM_VERSION "Unknown"
 #endif /* #ifndef VM_VERSION */
 
+#ifndef DISPLAY_DRIVER_INPUT_BUFFER_LEN
+#define DISPLAY_DRIVER_INPUT_BUFFER_LEN 4096
+#endif
+
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
@@ -74,9 +78,10 @@ static void updateFieldValues(struct datafield **df)
 
 void parseData(int pdfd)
 {
-	char buff[1024];
+	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
 
-	int readresult = read(pdfd, buff, 1023);
+	int readresult = read(pdfd, buff,
+			      DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1);
 
 	if (readresult < 0) {
 		perror("Error reading file: ");
@@ -120,10 +125,11 @@ void popFields(int pdfd)
 		raise(SIGINT);
 	}
 
-	char buff[1024];
+	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
 	struct datafield** dfields = NULL;
 
-	int readresult = read(pfd.fd, buff, 1023);
+	int readresult = read(pfd.fd, buff,
+			      DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1);
 
 	if (readresult < 0) {
 		perror("Error reading file: ");
