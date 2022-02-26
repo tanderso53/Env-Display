@@ -55,7 +55,7 @@ static void updateFieldValues(struct datafield **df)
 {
 	unsigned int fieldcnt = 0;
 
-	for (size_t i = 0; df[i]; ++i) {
+	for (size_t i = 0; i < numSensors(); ++i) {
 		struct datafield *dfi = df[i];
 
 		for (int j = 0; j < numDataFields(i); ++j) {
@@ -137,7 +137,7 @@ void popFields(int pdfd)
 	nfields = 0;
 	dfields = getDataDump(dfields);
 
-	for (size_t i = 0; dfields[i]; ++i) {
+	for (size_t i = 0; i < numSensors(); ++i) {
 		nfields += numDataFields(i);
 	}
 

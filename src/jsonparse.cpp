@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <csignal>
+#include <cassert>
 
 #include <iostream>
 #include <vector>
@@ -22,11 +23,9 @@ public:
   std::vector<std::string> millis;
 };
 
-typedef std::unique_ptr<mrparser[]> parsedlist;
+typedef std::vector<mrparser> parsedlist;
 
-static parsedlist parsedvalues = nullptr;
-
-static size_t nParsedValues = 0;
+static parsedlist parsedvalues;
 
 static void loadData(const Json::Value& ds, mrparser& parsed)
 {
@@ -64,19 +63,17 @@ void initializeData(const char* data)
   // Determine data format and allocate parsedvalues as required
   if (ds.isMember("data") && ds["data"].isArray()) {
 
-    parsedvalues.reset(new mrparser[1]);
-    nParsedValues = 1;
+    parsedvalues = parsedlist(1);
     loadData(ds, parsedvalues[0]);
 
   } else if (ds.isMember("output") && ds["output"].isArray()) {
 
     Json::Value& o = ds["output"];
 
-    parsedvalues.reset(new mrparser[o.size()]);
-    nParsedValues = o.size();
+    parsedvalues = parsedlist(o.size());
 
-    for (size_t i = 0; i < o.size(); ++i) {
-      loadData(o, parsedvalues[i]);
+    for (auto it = parsedvalues.begin(); it != parsedvalues.end(); ++it) {
+      loadData(o, *it);
     }
 
   } else {
@@ -85,8 +82,6 @@ void initializeData(const char* data)
     raise(SIGABRT);
 
   }
-
-  //Json::Value& d = ds["data"];
 
 }
 
@@ -97,22 +92,30 @@ int numDataFields(size_t i)
 
 size_t numSensors()
 {
-  return nParsedValues;
+  return parsedvalues.size();
 }
 
 void clearData()
 {
-  parsedvalues.reset(nullptr);
-  nParsedValues = 0;
-
   // Keep clearing array until NULL is reached
   if (_df) {
-    for (size_t i = 0; _df[i]; ++i) {
-      free(_df[i]);
+
+    for (size_t i = 0; i < numSensors(); ++i) {
+
+      if (_df[i]) {
+
+	free(_df[i]);
+
+      }
+
     }
 
     free(_df);
   }
+
+  _df = NULL;
+
+  parsedvalues.clear();
 }
 
 struct datafield** getDataDump(struct datafield** df)
@@ -123,21 +126,26 @@ struct datafield** getDataDump(struct datafield** df)
     return df;
   }
 
-  _df = (struct datafield**) malloc(nParsedValues + 1 * sizeof(struct datafield*));
+  _df = (struct datafield**) malloc(numSensors() * sizeof(struct datafield*));
 
-  for (size_t i = 0; i < nParsedValues; ++i) {
+  assert(_df);
+
+  for (size_t i = 0; i < numSensors(); ++i) {
+    struct datafield *dfi;
+
     _df[i] = (struct datafield*) malloc(numDataFields(i) * sizeof(struct datafield));
-    struct datafield *dfi = _df[i];
+
+    assert(_df[i]);
+
+    dfi = _df[i];
 
     for (int j = 0; j < numDataFields(i); ++j) {
-      strncpy(dfi->name, parsedvalues[i].names[j].c_str(), 32);
-      strncpy(dfi->value, parsedvalues[i].values[j].c_str(), 32);
-      strncpy(dfi->time, parsedvalues[i].millis[j].c_str(), 32);
-      strncpy(dfi->unit, parsedvalues[i].units[j].c_str(), 32);
+      strncpy(dfi[j].name, parsedvalues[i].names[j].c_str(), 32);
+      strncpy(dfi[j].value, parsedvalues[i].values[j].c_str(), 32);
+      strncpy(dfi[j].time, parsedvalues[i].millis[j].c_str(), 32);
+      strncpy(dfi[j].unit, parsedvalues[i].units[j].c_str(), 32);
     }
   }
-
-  _df[nParsedValues] = NULL;
 
   df = _df;
 
