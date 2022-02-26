@@ -26,28 +26,29 @@ const char* infile = "{\"status\": {\"isWarmedUp\": false, \"CCS811\": \"ok\", "
 
 BOOST_AUTO_TEST_CASE(jsonparse_test)
 {
-  struct datafield* df = NULL;
+  struct datafield** df = NULL;
 
   // Initialization test
   BOOST_REQUIRE_NO_THROW(initializeData(infile));
 
   // Counting test
-  BOOST_TEST(numDataFields() == 5);
+  BOOST_TEST(numDataFields(0) == 5);
 
   BOOST_REQUIRE_NO_THROW(df = getDataDump(df));
 
   // Check that data object is not null
   BOOST_TEST(df);
+  BOOST_TEST(df[0]);
 
   // Check that data content is correct
-  BOOST_WARN(strcmp(df[0].name, "ammonia") == 0);
-  BOOST_WARN(strcmp(df[0].value, "423") == 0);
-  BOOST_WARN(strcmp(df[0].time, "1602546") == 0);
-  BOOST_WARN(strcmp(df[0].unit, "counts") == 0);
-  BOOST_WARN(strcmp(df[1].name, "temp") == 0);
-  BOOST_WARN(strcmp(df[1].value, "23.18") == 0);
-  BOOST_WARN(strcmp(df[1].time, "1602551") == 0);
-  BOOST_WARN(strcmp(df[1].unit, "degC") == 0);
+  BOOST_WARN(strcmp(df[0][0].name, "ammonia") == 0);
+  BOOST_WARN(strcmp(df[0][0].value, "423") == 0);
+  BOOST_WARN(strcmp(df[0][0].time, "1602546") == 0);
+  BOOST_WARN(strcmp(df[0][0].unit, "counts") == 0);
+  BOOST_WARN(strcmp(df[0][1].name, "temp") == 0);
+  BOOST_WARN(strcmp(df[0][1].value, "23.18") == 0);
+  BOOST_WARN(strcmp(df[0][1].time, "1602551") == 0);
+  BOOST_WARN(strcmp(df[0][1].unit, "degC") == 0);
 
   // Check clearing of data
   BOOST_CHECK_NO_THROW(clearData());
