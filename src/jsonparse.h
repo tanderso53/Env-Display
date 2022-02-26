@@ -1,6 +1,8 @@
 #ifndef JSONPARSE_H
 #define JSONPARSE_H
 
+#include <stdlib.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif /* #ifdef __cplusplus */
@@ -14,11 +16,13 @@ extern "C" {
 
 	void initializeData(const char* data);
 
-	int numDataFields();
+	int numDataFields(size_t i);
+
+	size_t numSensors();
 
 	void clearData();
 
-	struct datafield* getDataDump(struct datafield*);
+	struct datafield** getDataDump(struct datafield**);
 
 #ifdef __cplusplus
 }

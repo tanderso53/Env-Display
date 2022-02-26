@@ -17,6 +17,10 @@
 #define VM_VERSION "Unknown"
 #endif /* #ifndef VM_VERSION */
 
+#ifndef DISPLAY_DRIVER_INPUT_BUFFER_LEN
+#define DISPLAY_DRIVER_INPUT_BUFFER_LEN 4096
+#endif
+
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
@@ -27,8 +31,13 @@ static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
 static uint8_t ignore_poll_error = 0;
 
+/* Sizes */
+static unsigned int form_height = 24;
+
 static void formResizeWindow();
 static void formHandleWinch(int sig);
+
+static void updateFieldValues(struct datafield **df);
 
 void lastUpdatedTime()
 {
@@ -49,11 +58,33 @@ void lastUpdatedTime()
 		mvwprintw(win_main, 28, 2, "Last update: %s", output);
 }
 
+static void updateFieldValues(struct datafield **df)
+{
+	unsigned int fieldcnt = 0;
+
+	for (size_t i = 0; i < numSensors(); ++i) {
+		struct datafield *dfi = df[i];
+
+		for (int j = 0; j < numDataFields(i); ++j) {
+			set_field_buffer(names[fieldcnt], 0, dfi[j].name);
+			set_field_buffer(values[fieldcnt], 0, dfi[j].value);
+			set_field_buffer(units[fieldcnt], 0, dfi[j].unit);
+
+			++fieldcnt;
+
+			if (fieldcnt == nfields) {
+				break;
+			}
+		}
+	}
+}
+
 void parseData(int pdfd)
 {
-	char buff[1024];
+	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
 
-	int readresult = read(pdfd, buff, 1023);
+	int readresult = read(pdfd, buff,
+			      DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1);
 
 	if (readresult < 0) {
 		perror("Error reading file: ");
@@ -68,21 +99,10 @@ void parseData(int pdfd)
 	lastUpdatedTime();
 
 	initializeData(buff);
-	struct datafield* df = NULL;
+	struct datafield** df = NULL;
 	df = getDataDump(df);
 
-	int nlimit;
-
-	if ((unsigned int) numDataFields() < nfields)
-		nlimit = numDataFields();
-	else
-		nlimit = nfields;
-
-	for (int i = 0; i < nlimit; ++i) {
-		set_field_buffer(names[i], 0, df[i].name);
-		set_field_buffer(values[i], 0, df[i].value);
-		set_field_buffer(units[i], 0, df[i].unit);
-	}
+	updateFieldValues(df);
 
 	clearData();
 }
@@ -108,10 +128,11 @@ void popFields(int pdfd)
 		raise(SIGINT);
 	}
 
-	char buff[1024];
-	struct datafield* dfields = NULL;
+	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
+	struct datafield** dfields = NULL;
 
-	int readresult = read(pfd.fd, buff, 1023);
+	int readresult = read(pfd.fd, buff,
+			      DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1);
 
 	if (readresult < 0) {
 		perror("Error reading file: ");
@@ -122,8 +143,14 @@ void popFields(int pdfd)
 	lastUpdatedTime();
 
 	initializeData(buff);
-	nfields = numDataFields();
+	nfields = 0;
 	dfields = getDataDump(dfields);
+
+	for (size_t i = 0; i < numSensors(); ++i) {
+		nfields += numDataFields(i);
+	}
+
+	nfields = nfields < form_height / 2 ? nfields : form_height / 2;
 
 	assert(dfields);
 
@@ -139,10 +166,6 @@ void popFields(int pdfd)
 		values[i] = new_field(1, 15, i * 2, 17, 0, 0);
 		units[i] = new_field(1, 10, i * 2, 34, 0, 0);
 
-		set_field_buffer(names[i], 0, dfields[i].name);
-		set_field_buffer(values[i], 0, dfields[i].value);
-		set_field_buffer(units[i], 0, dfields[i].unit);
-
 		field_opts_off(names[i], O_ACTIVE);
 		field_opts_off(values[i], O_ACTIVE);
 		field_opts_off(units[i], O_ACTIVE);
@@ -153,6 +176,8 @@ void popFields(int pdfd)
 		fields[fieldsctr] = values[i]; fieldsctr++;
 		fields[fieldsctr] = units[i]; fieldsctr++;
 	}
+
+	updateFieldValues(dfields);
 
 	fields[fieldsctr] = NULL;
 	clearData();
@@ -246,7 +271,7 @@ int formRun(int pdfd)
 		return 1;
 	}
 
-	if (set_form_sub(form, derwin(win_form, 24, 74, 1, 1)) != 0) {
+	if (set_form_sub(form, derwin(win_form, form_height, 74, 1, 1)) != 0) {
 		perror("Critical Error setting sub window: ");
 		return 1;
 	}
