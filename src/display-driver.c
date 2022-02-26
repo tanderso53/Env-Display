@@ -30,6 +30,8 @@ static uint8_t ignore_poll_error = 0;
 static void formResizeWindow();
 static void formHandleWinch(int sig);
 
+static void updateFieldValues(struct datafield **df);
+
 void lastUpdatedTime()
 {
 	char output[32];
@@ -47,6 +49,27 @@ void lastUpdatedTime()
 	/* Print current time to bottom of screen */
 	if (win_main)
 		mvwprintw(win_main, 28, 2, "Last update: %s", output);
+}
+
+static void updateFieldValues(struct datafield **df)
+{
+	unsigned int fieldcnt = 0;
+
+	for (size_t i = 0; df[i]; ++i) {
+		struct datafield *dfi = df[i];
+
+		for (int j = 0; j < numDataFields(i); ++j) {
+			set_field_buffer(names[fieldcnt], 0, dfi[j].name);
+			set_field_buffer(values[fieldcnt], 0, dfi[j].value);
+			set_field_buffer(units[fieldcnt], 0, dfi[j].unit);
+
+			++fieldcnt;
+
+			if (fieldcnt == nfields) {
+				break;
+			}
+		}
+	}
 }
 
 void parseData(int pdfd)
@@ -68,21 +91,10 @@ void parseData(int pdfd)
 	lastUpdatedTime();
 
 	initializeData(buff);
-	struct datafield* df = NULL;
+	struct datafield** df = NULL;
 	df = getDataDump(df);
 
-	int nlimit;
-
-	if ((unsigned int) numDataFields() < nfields)
-		nlimit = numDataFields();
-	else
-		nlimit = nfields;
-
-	for (int i = 0; i < nlimit; ++i) {
-		set_field_buffer(names[i], 0, df[i].name);
-		set_field_buffer(values[i], 0, df[i].value);
-		set_field_buffer(units[i], 0, df[i].unit);
-	}
+	updateFieldValues(df);
 
 	clearData();
 }
@@ -109,7 +121,7 @@ void popFields(int pdfd)
 	}
 
 	char buff[1024];
-	struct datafield* dfields = NULL;
+	struct datafield** dfields = NULL;
 
 	int readresult = read(pfd.fd, buff, 1023);
 
@@ -122,8 +134,12 @@ void popFields(int pdfd)
 	lastUpdatedTime();
 
 	initializeData(buff);
-	nfields = numDataFields();
+	nfields = 0;
 	dfields = getDataDump(dfields);
+
+	for (size_t i = 0; dfields[i]; ++i) {
+		nfields += numDataFields(i);
+	}
 
 	assert(dfields);
 
@@ -139,10 +155,6 @@ void popFields(int pdfd)
 		values[i] = new_field(1, 15, i * 2, 17, 0, 0);
 		units[i] = new_field(1, 10, i * 2, 34, 0, 0);
 
-		set_field_buffer(names[i], 0, dfields[i].name);
-		set_field_buffer(values[i], 0, dfields[i].value);
-		set_field_buffer(units[i], 0, dfields[i].unit);
-
 		field_opts_off(names[i], O_ACTIVE);
 		field_opts_off(values[i], O_ACTIVE);
 		field_opts_off(units[i], O_ACTIVE);
@@ -153,6 +165,8 @@ void popFields(int pdfd)
 		fields[fieldsctr] = values[i]; fieldsctr++;
 		fields[fieldsctr] = units[i]; fieldsctr++;
 	}
+
+	updateFieldValues(dfields);
 
 	fields[fieldsctr] = NULL;
 	clearData();
