@@ -21,6 +21,24 @@
 #define DISPLAY_DRIVER_INPUT_BUFFER_LEN 4096
 #endif
 
+#define DISPLAY_MAX_COLS 80
+#define DISPLAY_MIN_COLS 80
+
+#define DISPLAY_MAX_ROWS 200
+#define DISPLAY_MIN_ROWS 23
+
+struct borderwidth {
+	int top;
+	int left;
+	int right;
+	int bottom;
+} bw;
+
+struct windim {
+	int cols;
+	int rows;
+} wd;
+
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
@@ -32,12 +50,20 @@ static WINDOW* win_main = NULL;
 static uint8_t ignore_poll_error = 0;
 
 /* Sizes */
-static unsigned int form_height = 24;
+static unsigned int form_height();
 
 static void formResizeWindow();
 static void formHandleWinch(int sig);
 
 static void updateFieldValues(struct datafield **df);
+
+static unsigned int form_height() {
+	return wd.rows - bw.top - bw.bottom - 2;
+}
+
+static unsigned int form_width() {
+	return wd.cols - bw.left - bw.right - 2;
+}
 
 void lastUpdatedTime()
 {
@@ -55,7 +81,8 @@ void lastUpdatedTime()
 
 	/* Print current time to bottom of screen */
 	if (win_main)
-		mvwprintw(win_main, 28, 2, "Last update: %s", output);
+		mvwprintw(win_main, wd.rows - 2, 2,
+			  "Last update: %s", output);
 }
 
 static void updateFieldValues(struct datafield **df)
@@ -158,7 +185,7 @@ void popFields(int pdfd)
 		nfields += numDataFields(i);
 	}
 
-	nfields = nfields < form_height / 2 ? nfields : form_height / 2;
+	nfields = nfields < form_height() / 2 ? nfields : form_height() / 2;
 
 	names = (FIELD**) malloc(nfields * sizeof(FIELD*));
 	values = (FIELD**) malloc(nfields * sizeof(FIELD*));
@@ -255,15 +282,29 @@ int formRun(int pdfd)
 	signal(SIGWINCH, formHandleWinch);
 
 	initscr();
-	win_main = newwin(30, /* Lines */
-			  80, /* Cols */
+
+	/* Set border width */
+	bw.left = 2;
+	bw.right = 2;
+	bw.top = 2;
+	bw.bottom = 2;
+
+	/* Set window frame size */
+	wd.cols = COLS < DISPLAY_MAX_COLS ? COLS : DISPLAY_MAX_COLS;
+	wd.cols = wd.cols > DISPLAY_MIN_COLS ? wd.cols : DISPLAY_MIN_COLS;
+
+	wd.rows = LINES < DISPLAY_MAX_ROWS ? LINES : DISPLAY_MAX_ROWS;
+	wd.rows = wd.cols > DISPLAY_MIN_ROWS ? wd.rows : DISPLAY_MIN_ROWS;
+
+	win_main = newwin(wd.rows, /* Lines */
+			  wd.cols, /* Cols */
 			  0, /* X */
 			  0); /* Y */
 	win_form = derwin(win_main,
-			  26, /* Lines */
-			  76, /* Cols */
-			  2, /* X */
-			  2); /* Y */
+			  wd.rows - bw.left - bw.right, /* Lines */
+			  wd.cols - bw.top - bw.bottom, /* Cols */
+			  bw.left, /* X */
+			  bw.top); /* Y */
 
 	assert(win_main);
 	assert(win_form);
@@ -277,7 +318,8 @@ int formRun(int pdfd)
 		return 1;
 	}
 
-	if (set_form_sub(form, derwin(win_form, form_height, 74, 1, 1)) != 0) {
+	if (set_form_sub(form, derwin(win_form, form_height(),
+				      form_width(), 1, 1)) != 0) {
 		perror("Critical Error setting sub window: ");
 		return 1;
 	}
