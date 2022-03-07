@@ -6,7 +6,6 @@
 #include <cstdio>
 
 extern "C" void popFields(int pdfd);
-extern "C" void parseData(int pdfd);
 
 #define BOOST_TEST_MODULE env_display_test
 #include <boost/test/included/unit_test.hpp>
@@ -91,7 +90,6 @@ BOOST_AUTO_TEST_CASE(forms_display_test)
   }
 
   BOOST_REQUIRE_NO_THROW(popFields(fileno(fptr)));
-  BOOST_CHECK_NO_THROW(parseData(fileno(fptr)));
   BOOST_CHECK_NO_THROW(formExit());
 
   fclose(fptr);

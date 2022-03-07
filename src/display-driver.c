@@ -79,32 +79,50 @@ static void updateFieldValues(struct datafield **df)
 	}
 }
 
-void parseData(int pdfd)
+struct datafield **parseData(int pdfd, struct datafield** df)
 {
 	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
+	int i = 0;
 
-	int readresult = read(pdfd, buff,
-			      DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1);
+	while (i < DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1) {
+		char c;
 
-	if (readresult < 0) {
-		perror("Error reading file: ");
-		raise(SIGINT);
+		int readresult = read(pdfd, &c, 1);
+
+		if (readresult < 0) {
+			perror("Error reading file: ");
+			raise(SIGINT);
+		}
+
+		if (c == '\n' || c == '\r') {
+			break;
+		}
+
+		if (readresult == 0) {
+			struct pollfd pfd = {
+				.fd = pdfd,
+				.events = POLLIN
+			};
+
+			/* Keep polling if ran out of characters */
+			int pollresult = poll(&pfd, 1, 1000);
+
+			if (pollresult  > 0) {
+				break;
+			}
+
+			continue;
+		}
+
+		buff[i] = c;
+		++i;
 	}
-	else if (readresult == 0) {
-		sleep(1);
-		return;
-	}
 
-	buff[readresult] = '\0';
+	buff[i] = '\0';
 	lastUpdatedTime();
 
 	initializeData(buff);
-	struct datafield** df = NULL;
-	df = getDataDump(df);
-
-	updateFieldValues(df);
-
-	clearData();
+	return getDataDump(df);
 }
 
 void popFields(int pdfd)
@@ -128,31 +146,19 @@ void popFields(int pdfd)
 		raise(SIGINT);
 	}
 
-	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
 	struct datafield** dfields = NULL;
 
-	int readresult = read(pfd.fd, buff,
-			      DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1);
+	dfields = parseData(pdfd, dfields);
 
-	if (readresult < 0) {
-		perror("Error reading file: ");
-		raise(SIGINT);
-	}
+	assert(dfields);
 
-	buff[readresult] = '\0';
-	lastUpdatedTime();
-
-	initializeData(buff);
 	nfields = 0;
-	dfields = getDataDump(dfields);
 
 	for (size_t i = 0; i < numSensors(); ++i) {
 		nfields += numDataFields(i);
 	}
 
 	nfields = nfields < form_height / 2 ? nfields : form_height / 2;
-
-	assert(dfields);
 
 	names = (FIELD**) malloc(nfields * sizeof(FIELD*));
 	values = (FIELD**) malloc(nfields * sizeof(FIELD*));
@@ -308,7 +314,11 @@ int formRun(int pdfd)
 			continue;
 		}
 
-		parseData(pfd.fd);
+		struct datafield **df = NULL;
+
+		df = parseData(pfd.fd, df);
+		updateFieldValues(df);
+		clearData();
 		refresh();
 		wrefresh(win_main);
 		wrefresh(win_form);

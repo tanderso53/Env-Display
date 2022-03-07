@@ -35,7 +35,8 @@ enum AppMode {
 	AM_STDIN = 0x00,
 	AM_TTY = 0x01,
 	AM_FILE = 0x02,
-	AM_UDP = 0x04
+	AM_UDP = 0x04,
+	AM_TCP = 0x08
 } appmode = AM_STDIN;
 
 void printUsage(int argc, char* const argv[])
@@ -45,20 +46,23 @@ void printUsage(int argc, char* const argv[])
 	printf("Usage:\n"
 	       "%1$s\n"
 	       "%1$s -f <filename>\n"
-	       "%1$s -u <host> -p <port>\n"
+	       "%1$s -u <host> | -t <host> -p <port>\n"
 	       "%1$s -s <serial> [-b <baud>]\n"
 	       "%1$s -h\n"
 	       "%1$s -V\n"
 	       "\n"
-	       "Calling with no options will read from stdin. Alternatively -f or -u\n"
-	       "can be supplied to read from a file or from a UDP socket.\n"
+	       "Calling with no options will read from stdin. Alternatively -f, -u, or -t\n"
+	       "can be supplied to read from a file or from a UDP socket. To read from a\n"
+	       "serial port, specify the port with -s and the speed with -b.\n"
 	       "\n"
 	       "Options:\n"
 	       "-f <filename>	A filename to read json env data from\n"
 	       "-u <host>	A hostname or ip address to connect to via UDP. Cannot\n"
 	       "		be used with the -f option\n"
+	       "-t <host>	A hostname or ip address to connect to via TCP. Cannot\n"
+	       "		be used with the -f option\n"
 	       "-p <port>	A port number to connect to on the remote port. Must be\n"
-	       "		used with the -u option\n"
+	       "		used with the -u or -t option\n"
 	       "-s <serial>	Special file path for a serial device\n"
 	       "-b <baud>	Baud rate for serial connection (default: 9600)\n"
 	       "-h		Print usage message, then exit\n"
@@ -70,7 +74,7 @@ void parseOptions(int argc, char* const argv[])
 {
 	int c;
 
-	while ((c = getopt(argc, argv, "f:u:p:s:b:hV")) != -1) {
+	while ((c = getopt(argc, argv, "f:u:t:p:s:b:hV")) != -1) {
 		switch(c) {
 
 		case 'f':
@@ -94,6 +98,17 @@ void parseOptions(int argc, char* const argv[])
 
 			strncpy(ipbuffer, optarg, APP_BUFFERSIZE);
 			appmode = AM_UDP;
+			break;
+
+		case 't':
+			if (appmode == AM_FILE) {
+				fprintf(stderr, "Error: "
+					"t cannot be used with f\n");
+				exit(1);
+			}
+
+			strncpy(ipbuffer, optarg, APP_BUFFERSIZE);
+			appmode = AM_TCP;
 			break;
 
 		case 'p':
@@ -173,6 +188,53 @@ int remoteConnect()
 		.ai_family = 0,
 		.ai_socktype = SOCK_DGRAM,
 		.ai_protocol = IPPROTO_UDP,
+		.ai_addrlen = 0,
+		.ai_canonname = NULL,
+		.ai_addr = NULL,
+		.ai_next = NULL
+	};
+
+	struct addrinfo* sockai;
+	struct addrinfo* ai_iter;
+
+	if ((error = getaddrinfo(ipbuffer, portbuffer, &hints, &sockai)) != 0) {
+		fprintf(stderr, "Failed to look up address %s:%s with code %d: "
+			"%s", ipbuffer, portbuffer, error, gai_strerror(error));
+		return -1;
+	}
+
+	assert(sockai);
+	ai_iter = sockai;
+
+	do {
+		if ((s = socket(ai_iter->ai_family, ai_iter->ai_socktype,
+				ai_iter->ai_protocol)) < 0) {
+			continue;
+		}
+
+		if (connect(s, ai_iter->ai_addr, ai_iter->ai_addrlen) == 0) {
+			break;
+		}
+
+		s = -1;
+	}
+	while ((ai_iter = ai_iter->ai_next) != NULL);
+
+	freeaddrinfo(sockai);
+
+	return s;
+}
+
+int tcpConnect()
+{
+	int s; /* Socket */
+	int error;
+
+	struct addrinfo hints = {
+		.ai_flags = AI_PASSIVE,
+		.ai_family = 0,
+		.ai_socktype = SOCK_STREAM,
+		.ai_protocol = IPPROTO_TCP,
 		.ai_addrlen = 0,
 		.ai_canonname = NULL,
 		.ai_addr = NULL,
@@ -313,6 +375,13 @@ int main(int argc, char* const argv[])
 			fprintf(stderr, "Failed to write to address %s:%s:"
 				" %s\n", ipbuffer, portbuffer,
 				strerror(errno));
+			return 1;
+		}
+		break;
+	case AM_TCP:
+		if ((fd = tcpConnect()) < 0) {
+			fprintf(stderr, "Failed to open %s:%s\n",
+				ipbuffer, portbuffer);
 			return 1;
 		}
 		break;
