@@ -99,7 +99,18 @@ struct datafield **parseData(int pdfd, struct datafield** df)
 		}
 
 		if (readresult == 0) {
-			sleep(1);
+			struct pollfd pfd = {
+				.fd = pdfd,
+				.events = POLLIN
+			};
+
+			/* Keep polling if ran out of characters */
+			int pollresult = poll(&pfd, 1, 1000);
+
+			if (pollresult  > 0) {
+				break;
+			}
+
 			continue;
 		}
 
