@@ -39,6 +39,7 @@ struct windim {
 	int rows;
 } wd;
 
+static int displayFD = -1;
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
@@ -48,12 +49,14 @@ static FORM* form = NULL;
 static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
 static uint8_t ignore_poll_error = 0;
+static int assignFormToWin();
 
 /* Sizes */
 static unsigned int form_height();
-
+static void defineWindowSize();
 static void formResizeWindow();
 static void formHandleWinch(int sig);
+static void freeFields();
 
 static void updateFieldValues(struct datafield **df);
 
@@ -250,16 +253,30 @@ static void formResizeWindow()
 	refresh();
 	clear();
 
+	/* Delete old window and create new one */
+	freeFields();
+	delwin(win_form);
+	delwin(win_main);
+	defineWindowSize();
+
+	/* Get new form data */
+	popFields(displayFD);
+	assert(fields);
+	form = new_form(fields);
+	assignFormToWin();
+
 	formSetupWindow();
 
 	assert(form);
+
+	post_form(form);
 
 	refresh();
 	wrefresh(win_main);
 	wrefresh(win_form);
 }
 
-void formExit()
+static void freeFields()
 {
 	if (form) {
 		unpost_form(form);
@@ -274,15 +291,25 @@ void formExit()
 		}
 	}
 
+	free(names);
+	free(values);
+	free(units);
+	free(fields);
+
+	names = NULL;
+	values = NULL;
+	units = NULL;
+	fields = NULL;
+}
+
+void formExit()
+{
+	freeFields();
 	endwin();
 }
 
-int formRun(int pdfd)
+void defineWindowSize()
 {
-	signal(SIGWINCH, formHandleWinch);
-
-	initscr();
-
 	/* Set border width */
 	bw.left = 2;
 	bw.right = 2;
@@ -305,14 +332,10 @@ int formRun(int pdfd)
 			  wd.cols - bw.top - bw.bottom, /* Cols */
 			  bw.left, /* X */
 			  bw.top); /* Y */
+}
 
-	assert(win_main);
-	assert(win_form);
-
-	popFields(pdfd);
-	form = new_form(fields);
-	assert(form);
-
+static int assignFormToWin()
+{
 	if (set_form_win(form, win_main) != 0) {
 		perror("Critical Error setting main window: ");
 		return 1;
@@ -321,6 +344,29 @@ int formRun(int pdfd)
 	if (set_form_sub(form, derwin(win_form, form_height(),
 				      form_width(), 1, 1)) != 0) {
 		perror("Critical Error setting sub window: ");
+		return 1;
+	}
+
+	return 0;
+}
+
+int formRun(int pdfd)
+{
+	displayFD = pdfd;
+	signal(SIGWINCH, formHandleWinch);
+
+	initscr();
+
+	defineWindowSize();
+
+	assert(win_main);
+	assert(win_form);
+
+	popFields(pdfd);
+	form = new_form(fields);
+	assert(form);
+
+	if (assignFormToWin() != 0) {
 		return 1;
 	}
 
