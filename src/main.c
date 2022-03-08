@@ -1,4 +1,5 @@
 #include "display-driver.h"
+#include "data-ops.h"
 
 #include <string.h>
 #include <assert.h>
@@ -324,12 +325,12 @@ void closeDescriptor()
 
 void signalHandler(int sig)
 {
-	formExit();
+	metric_form_exit();
 	closeDescriptor();
 	printf("Received signal %d: %s\n", sig, strsignal(sig));
 
 	if (sig == SIGINT || sig == SIGTERM) {
-		exit(0);
+		return;
 	}
 
 	exit(1);
@@ -337,6 +338,8 @@ void signalHandler(int sig)
 
 int main(int argc, char* const argv[])
 {
+	int ret;
+
 	/* Register signal handlers */
 	signal(SIGINT, signalHandler);
 	signal(SIGTERM, signalHandler);
@@ -395,5 +398,15 @@ int main(int argc, char* const argv[])
 		break;
 	}
 
-	return formRun(fd);
+	/* Use ncurses display mode (none others currently
+	 * available */
+	struct metric_form *m;
+
+	m = ncursesCFG(fd); /* Use default window config */
+
+	ret = metric_form_init(m);
+
+	ncursesFreeMetric(); /* The metric data must be freed */
+
+	return ret;
 }

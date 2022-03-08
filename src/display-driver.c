@@ -1,7 +1,6 @@
-#include "jsonparse.h"
+#include "display-driver.h"
 
 #include <form.h>
-#include <math.h>
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
@@ -9,17 +8,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <poll.h>
-#include <fcntl.h>
 #include <time.h>
 
 #ifndef VM_VERSION
 #define VM_VERSION "Unknown"
 #endif /* #ifndef VM_VERSION */
-
-#ifndef DISPLAY_DRIVER_INPUT_BUFFER_LEN
-#define DISPLAY_DRIVER_INPUT_BUFFER_LEN 4096
-#endif
 
 #define DISPLAY_MAX_COLS 80
 #define DISPLAY_MIN_COLS 80
@@ -27,69 +20,158 @@
 #define DISPLAY_MAX_ROWS 200
 #define DISPLAY_MIN_ROWS 23
 
-struct borderwidth {
-	int top;
-	int left;
-	int right;
-	int bottom;
-} bw;
+/* Flags */
+#define METRIC_FLAG_WINRESIZE 0x01
+#define METRIC_FLAG_EXIT 0x02
 
-struct windim {
-	int cols;
-	int rows;
-} wd;
-
-static int displayFD = -1;
+static uint8_t _metric_flags = 0;
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
 static FIELD** units = NULL;
-static unsigned int nfields = 0;
 static FORM* form = NULL;
 static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
 static uint8_t ignore_poll_error = 0;
-static int assignFormToWin();
 
-/* Sizes */
-static unsigned int form_height();
-static void defineWindowSize();
-static void formResizeWindow();
-static void formHandleWinch(int sig);
-static void freeFields();
-static unsigned int displayNumVisibleFields();
-static void displaySetOverflowPage();
+/* Local function definitions */
+static void _update_fields(struct metric_form *mf);
+static int _assign_form_to_win(struct metric_form *mf);
+static void _allocate_fields(struct metric_form *mf);
+static void _define_win_size(struct metric_form *mf);
+static void _resize_window(struct metric_form *mf);
+static void _handle_winch(int sig);
+static void _free_fields();
+static unsigned int _fields_per_page(struct metric_form *mf);
+static void _form_setup_window();
+static void _last_updated_time(struct metric_form *mf);
+static void _form_exit();
 
-static void updateFieldValues(struct datafield **df);
+/*
+**********************************************************************
+********************* API IMPLEMENTATION *****************************
+**********************************************************************
+*/
 
-static unsigned int form_height() {
-	return wd.rows - bw.top - bw.bottom - 2;
-}
-
-static unsigned int form_width() {
-	return wd.cols - bw.left - bw.right - 2;
-}
-
-static unsigned int displayNumVisibleFields()
+int metric_form_init(struct metric_form *mf)
 {
-	return form_height() / 2;
-}
+	assert(mf);
 
-static void displaySetOverflowPage()
-{
-	for (unsigned int i = 0; i < nfields; ++i) {
-		bool rst = i == displayNumVisibleFields();
-		int frow = rst ? 0 : i * 2;
+	signal(SIGWINCH, _handle_winch);
 
-		set_new_page(names[i], rst);
+	initscr();
 
-		move_field(names[i], frow, 2);
-		move_field(values[i], frow, 17);
-		move_field(units[i], frow, 34);
+	_define_win_size(mf);
+
+	assert(win_main);
+	assert(win_form);
+
+	_allocate_fields(mf);
+	_update_fields(mf);
+	form = new_form(fields);
+	assert(form);
+
+	if (_assign_form_to_win(mf) != 0) {
+		return 1;
+	}
+
+	_form_setup_window();
+
+	post_form(form);
+	_last_updated_time(mf);
+	refresh();
+	wrefresh(win_main);
+	wrefresh(win_form);
+
+	for (;;) {
+		int ret;
+
+		if (_metric_flags & METRIC_FLAG_WINRESIZE) {
+			_resize_window(mf);
+			_metric_flags &= ~METRIC_FLAG_WINRESIZE;
+		}
+
+		/* Exit if receive signal */
+		if (_metric_flags & METRIC_FLAG_EXIT) {
+			_form_exit();
+			return 0;
+		}
+
+		ret = mf->polldata_cb(500); /* 500 ms timout on user poll */
+
+		if (ret < 0) {
+			_form_exit();
+			return 1;
+		}
+
+		if (ret == 0) {
+			_update_fields(mf);
+			_last_updated_time(mf);
+			refresh();
+			wrefresh(win_main);
+			wrefresh(win_form);
+		}
 	}
 }
 
-void lastUpdatedTime()
+unsigned int metric_form_height(struct metric_form *mf)
+{
+	return mf->wd.rows - mf->bw.top - mf->bw.bottom - 2;
+}
+
+unsigned int metric_form_width(struct metric_form *mf)
+{
+	return mf->wd.cols - mf->bw.left - mf->bw.right - 2;
+}
+
+void metric_form_exit()
+{
+	_metric_flags |= METRIC_FLAG_EXIT;
+}
+
+bool metric_is_empty(const struct metric *met)
+{
+	assert(met);
+
+	return strlen(met->name) == 0 &&
+		strlen(met->value) == 0 &&
+		strlen(met->unit) == 0 &&
+		met->page == 0 &&
+		met->slot == 0;
+}
+
+void metric_make_empty_array(struct metric *met, int len)
+{
+	assert(met);
+
+	for (int i = 0; i < len; ++i) {
+		metric_make_empty(&met[i]);
+	}
+}
+
+void metric_make_empty(struct metric *met)
+{
+	assert(met);
+
+	met->name[0] = '\0';
+	met->value[0] = '\0';
+	met->unit[0] = '\0';
+	met->page = 0;
+	met->slot = 0;
+}
+
+/*
+**********************************************************************
+***************** LOCAL FUNCTION IMPLEMENTATION **********************
+**********************************************************************
+*/
+
+static unsigned int _fields_per_page(struct metric_form *mf)
+{
+	return metric_form_height(mf) / 2;
+}
+
+static void _last_updated_time(struct metric_form *mf)
 {
 	char output[32];
 	struct tm timstruct;
@@ -105,148 +187,112 @@ void lastUpdatedTime()
 
 	/* Print current time to bottom of screen */
 	if (win_main)
-		mvwprintw(win_main, wd.rows - 2, 2,
+		mvwprintw(win_main, mf->wd.rows - 2, 2,
 			  "Last update: %s", output);
 }
 
-static void updateFieldValues(struct datafield **df)
+static void _update_fields(struct metric_form *mf)
 {
-	unsigned int fieldcnt = 0;
+	assert(mf->metrics);
 
-	for (size_t i = 0; i < numSensors(); ++i) {
-		struct datafield *dfi = df[i];
+	for (int i = 0; i < mf->wd.pages; ++i) {
+		int pfields = _fields_per_page(mf);
+		struct metric ms[pfields];
+		struct metric mauto[pfields];
+		int ai = 0;
 
-		for (int j = 0; j < numDataFields(i); ++j) {
-			set_field_buffer(names[fieldcnt], 0, dfi[j].name);
-			set_field_buffer(values[fieldcnt], 0, dfi[j].value);
-			set_field_buffer(units[fieldcnt], 0, dfi[j].unit);
+		metric_make_empty_array(ms, pfields);
+		metric_make_empty_array(mauto, pfields);
 
-			++fieldcnt;
+		/* Need to sort out the minuses */
+		for (int j = 0; !metric_is_empty(&mf->metrics[j]); ++j) {
+			if (mf->metrics[j].page != i)
+				continue;
 
-			if (fieldcnt == nfields) {
-				break;
+			if (mf->metrics[j].slot < 0 &&
+			    ai < pfields) {
+				mauto[ai] = mf->metrics[j];
+				++ai;
+			} else {
+				int addr = mf->metrics[j].slot;
+
+				if (addr >= pfields) {
+					continue;
+				}
+
+				if (!metric_is_empty(&ms[addr])) {
+					continue;
+				}
+
+				ms[addr] = mf->metrics[j];
 			}
+		}
+
+		/* Sort minuses into empty slots */
+		for (int j = 0; j < ai; ++j) {
+			for (int k = 0; k < pfields; ++k) {
+				if (metric_is_empty(&ms[k])) {
+					ms[k] = mauto[j];
+
+					break;
+				}
+			}
+		}
+
+		/* Write all fields on this page */
+		for (int j = 0; j < pfields; ++j) {
+			int paddr = j + i * pfields;
+
+			set_field_buffer(names[paddr], 0, ms[j].name);
+			set_field_buffer(values[paddr], 0, ms[j].value);
+			set_field_buffer(units[paddr], 0, ms[j].unit);
 		}
 	}
 }
 
-struct datafield **parseData(int pdfd, struct datafield** df)
+void _allocate_fields(struct metric_form *mf)
 {
-	char buff[DISPLAY_DRIVER_INPUT_BUFFER_LEN];
-	int i = 0;
+	int nfields = _fields_per_page(mf);
+	int npages = mf->wd.pages;
 
-	while (i < DISPLAY_DRIVER_INPUT_BUFFER_LEN - 1) {
-		char c;
-
-		int readresult = read(pdfd, &c, 1);
-
-		if (readresult < 0) {
-			perror("Error reading file: ");
-			raise(SIGINT);
-		}
-
-		if (c == '\n' || c == '\r') {
-			break;
-		}
-
-		if (readresult == 0) {
-			struct pollfd pfd = {
-				.fd = pdfd,
-				.events = POLLIN
-			};
-
-			/* Keep polling if ran out of characters */
-			int pollresult = poll(&pfd, 1, 1000);
-
-			if (pollresult  > 0) {
-				break;
-			}
-
-			continue;
-		}
-
-		buff[i] = c;
-		++i;
-	}
-
-	buff[i] = '\0';
-	lastUpdatedTime();
-
-	initializeData(buff);
-	return getDataDump(df);
-}
-
-void popFields(int pdfd)
-{
-	struct pollfd pfd = {
-		.fd = pdfd, /* open(parsefile, O_RDWR), */
-		.events = POLLIN
-	};
-
-	printf("Polling for environmental data...\n");
-	int pollresult = poll(&pfd, 1, 60000);
-
-	if (pollresult < 0) {
-		perror("Error while reading initial data: ");
-		raise(SIGINT);
-	}
-
-	if (pollresult == 0) {
-		fprintf(stderr, "Failed to get "
-			"initial data from stream\n");
-		raise(SIGINT);
-	}
-
-	struct datafield** dfields = NULL;
-
-	dfields = parseData(pdfd, dfields);
-
-	assert(dfields);
-
-	nfields = 0;
-
-	for (size_t i = 0; i < numSensors(); ++i) {
-		nfields += numDataFields(i);
-	}
-
-	names = (FIELD**) malloc(nfields * sizeof(FIELD*));
-	values = (FIELD**) malloc(nfields * sizeof(FIELD*));
-	units = (FIELD**) malloc(nfields * sizeof(FIELD*));
-	fields = (FIELD**) malloc((nfields * 3 + 1) * sizeof(FIELD*));
+	names = (FIELD**) malloc(nfields * npages * sizeof(FIELD*));
+	values = (FIELD**) malloc(nfields * npages * sizeof(FIELD*));
+	units = (FIELD**) malloc(nfields * npages * sizeof(FIELD*));
+	fields = (FIELD**) malloc((nfields * npages * 3 + 1) * sizeof(FIELD*));
 
 	int fieldsctr = 0;
+	int pagesctr = 0;
 
-	for (unsigned int i = 0; i < nfields; ++i) {
-		names[i] = new_field(1, 15, i * 2, 2, 0, 0);
-		values[i] = new_field(1, 15, i * 2, 17, 0, 0);
-		units[i] = new_field(1, 10, i * 2, 34, 0, 0);
+	for (int i = 0; i < nfields * npages; ++i) {
+		int row_coord = (i - (pagesctr * nfields)) * 2;
+		bool newpage = pagesctr && (! i % nfields);
+
+		names[i] = new_field(1, 15, row_coord, 2, 0, 0);
+		values[i] = new_field(1, 15, row_coord, 17, 0, 0);
+		units[i] = new_field(1, 10, row_coord, 34, 0, 0);
 
 		field_opts_off(names[i], O_ACTIVE);
 		field_opts_off(values[i], O_ACTIVE);
 		field_opts_off(units[i], O_ACTIVE);
 
-		/* Set new page for all overflow fields */
-		/* if (i == displayNumVisibleFields()) { */
-			/* set_new_page(names[i], true); */
-		/* } */
+		/* Signal start of new page on names only if
+		   appropriate */
+		set_new_page(names[i], newpage);
 
 		set_field_just(values[i], JUSTIFY_RIGHT);
 
 		fields[fieldsctr] = names[i]; fieldsctr++;
 		fields[fieldsctr] = values[i]; fieldsctr++;
 		fields[fieldsctr] = units[i]; fieldsctr++;
+
+		if (! (i + 1) % nfields)
+			++pagesctr;
 	}
 
-	displaySetOverflowPage();
-
-	updateFieldValues(dfields);
-
 	fields[fieldsctr] = NULL;
-	clearData();
-	/* close(pfd.fd); */
 }
 
-static void formSetupWindow()
+static void _form_setup_window()
 {
 	assert(win_main);
 	assert(win_form);
@@ -263,17 +309,7 @@ static void formSetupWindow()
 	curs_set(0);
 }
 
-void formDriver(int ch)
-{
-	switch (ch) {
-
-	default:
-		break;
-
-	}
-}
-
-static void formResizeWindow()
+static void _resize_window(struct metric_form *mf)
 {
 	endwin();
 	refresh();
@@ -282,27 +318,28 @@ static void formResizeWindow()
 	/* Delete old window and create new one */
 	delwin(win_form);
 	delwin(win_main);
-	defineWindowSize();
-	unpost_form(form);
-	free_form(form);
+	_define_win_size(mf);
+	_free_fields();
 
 	/* Adjust form overflow */
-	displaySetOverflowPage();
-
+	_allocate_fields(mf);
 	assert(fields);
-	form = new_form(fields);
-	assignFormToWin();
+	_update_fields(mf);
 
-	formSetupWindow();
+	form = new_form(fields);
+	_assign_form_to_win(mf);
+
+	_form_setup_window();
 
 	assert(form);
+	post_form(form);
 
 	refresh();
 	wrefresh(win_main);
 	wrefresh(win_form);
 }
 
-static void freeFields()
+static void _free_fields()
 {
 	if (form) {
 		unpost_form(form);
@@ -328,47 +365,52 @@ static void freeFields()
 	fields = NULL;
 }
 
-void formExit()
+static void _form_exit()
 {
-	freeFields();
+	_free_fields();
 	endwin();
 }
 
-void defineWindowSize()
+void _define_win_size(struct metric_form *mf)
 {
 	/* Set border width */
-	bw.left = 2;
-	bw.right = 2;
-	bw.top = 2;
-	bw.bottom = 2;
+	mf->bw.left = 2;
+	mf->bw.right = 2;
+	mf->bw.top = 2;
+	mf->bw.bottom = 2;
 
 	/* Set window frame size */
-	wd.cols = COLS < DISPLAY_MAX_COLS ? COLS : DISPLAY_MAX_COLS;
-	wd.cols = wd.cols > DISPLAY_MIN_COLS ? wd.cols : DISPLAY_MIN_COLS;
+	mf->wd.cols = COLS < DISPLAY_MAX_COLS
+		? COLS : DISPLAY_MAX_COLS;
+	mf->wd.cols = mf->wd.cols > DISPLAY_MIN_COLS
+		? mf->wd.cols : DISPLAY_MIN_COLS;
 
-	wd.rows = LINES < DISPLAY_MAX_ROWS ? LINES : DISPLAY_MAX_ROWS;
-	wd.rows = wd.cols > DISPLAY_MIN_ROWS ? wd.rows : DISPLAY_MIN_ROWS;
+	mf->wd.rows = LINES < DISPLAY_MAX_ROWS
+		? LINES : DISPLAY_MAX_ROWS;
+	mf->wd.rows = mf->wd.cols > DISPLAY_MIN_ROWS
+		? mf->wd.rows : DISPLAY_MIN_ROWS;
 
-	win_main = newwin(wd.rows, /* Lines */
-			  wd.cols, /* Cols */
+	win_main = newwin(mf->wd.rows, /* Lines */
+			  mf->wd.cols, /* Cols */
 			  0, /* X */
 			  0); /* Y */
 	win_form = derwin(win_main,
-			  wd.rows - bw.left - bw.right, /* Lines */
-			  wd.cols - bw.top - bw.bottom, /* Cols */
-			  bw.left, /* X */
-			  bw.top); /* Y */
+			  mf->wd.rows - mf->bw.left - mf->bw.right, /* Lines */
+			  mf->wd.cols - mf->bw.top - mf->bw.bottom, /* Cols */
+			  mf->bw.left, /* X */
+			  mf->bw.top); /* Y */
 }
 
-static int assignFormToWin()
+static int _assign_form_to_win(struct metric_form *mf)
 {
 	if (set_form_win(form, win_main) != 0) {
 		perror("Critical Error setting main window: ");
 		return 1;
 	}
 
-	if (set_form_sub(form, derwin(win_form, form_height(),
-				      form_width(), 1, 1)) != 0) {
+	if (set_form_sub(form,
+			 derwin(win_form, metric_form_height(mf),
+				metric_form_width(mf), 1, 1)) != 0) {
 		perror("Critical Error setting sub window: ");
 		return 1;
 	}
@@ -376,73 +418,9 @@ static int assignFormToWin()
 	return 0;
 }
 
-int formRun(int pdfd)
-{
-	displayFD = pdfd;
-	signal(SIGWINCH, formHandleWinch);
-
-	initscr();
-
-	defineWindowSize();
-
-	assert(win_main);
-	assert(win_form);
-
-	popFields(pdfd);
-	form = new_form(fields);
-	assert(form);
-
-	if (assignFormToWin() != 0) {
-		return 1;
-	}
-
-	formSetupWindow();
-
-	post_form(form);
-	refresh();
-	wrefresh(win_main);
-	wrefresh(win_form);
-
-	for (;;) {
-		struct pollfd pfd = {
-			.fd = pdfd, /* open(openfile, O_RDWR), */
-			.events = POLLIN
-		};
-
-		int pollresult = poll(&pfd, 1, 30000);
-
-		if (pollresult < 0) {
-
-			/* Dirty hack to prevent poll errors on window
-			 * size changes */
-			if (ignore_poll_error) {
-				ignore_poll_error = 0;
-				continue;
-			}
-
-			perror("Critical Error polling file: ");
-			formExit();
-			exit(1);
-		}
-		else if (pollresult == 0) {
-			continue;
-		}
-
-		struct datafield **df = NULL;
-
-		df = parseData(pfd.fd, df);
-		updateFieldValues(df);
-		clearData();
-		refresh();
-		wrefresh(win_main);
-		wrefresh(win_form);
-		/* close(pfd.fd); */
-	}
-}
-
-static void formHandleWinch(int sig)
+static void _handle_winch(int sig)
 {
 	assert(sig == SIGWINCH);
 	ignore_poll_error = 1;
-	formResizeWindow();
+	_metric_flags |= METRIC_FLAG_WINRESIZE;
 }
