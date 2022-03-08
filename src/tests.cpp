@@ -1,5 +1,6 @@
 #include "jsonparse.h"
 #include "display-driver.h"
+#include "data-ops.h"
 
 #include <iostream>
 #include <cstring>
@@ -89,8 +90,9 @@ BOOST_AUTO_TEST_CASE(forms_display_test)
     return;
   }
 
-  BOOST_REQUIRE_NO_THROW(popFields(fileno(fptr)));
-  BOOST_CHECK_NO_THROW(formExit());
+  BOOST_REQUIRE_NO_THROW(ncursesCFG(fileno(fptr)));
+  BOOST_CHECK_NO_THROW(metric_form_exit());
+  BOOST_CHECK_NO_THROW(ncursesFreeMetric());
 
   fclose(fptr);
 }
