@@ -57,6 +57,8 @@ static void defineWindowSize();
 static void formResizeWindow();
 static void formHandleWinch(int sig);
 static void freeFields();
+static unsigned int displayNumVisibleFields();
+static void displaySetOverflowPage();
 
 static void updateFieldValues(struct datafield **df);
 
@@ -66,6 +68,25 @@ static unsigned int form_height() {
 
 static unsigned int form_width() {
 	return wd.cols - bw.left - bw.right - 2;
+}
+
+static unsigned int displayNumVisibleFields()
+{
+	return form_height() / 2;
+}
+
+static void displaySetOverflowPage()
+{
+	for (unsigned int i = 0; i < nfields; ++i) {
+		bool rst = i == displayNumVisibleFields();
+		int frow = rst ? 0 : i * 2;
+
+		set_new_page(names[i], rst);
+
+		move_field(names[i], frow, 2);
+		move_field(values[i], frow, 17);
+		move_field(units[i], frow, 34);
+	}
 }
 
 void lastUpdatedTime()
@@ -188,8 +209,6 @@ void popFields(int pdfd)
 		nfields += numDataFields(i);
 	}
 
-	nfields = nfields < form_height() / 2 ? nfields : form_height() / 2;
-
 	names = (FIELD**) malloc(nfields * sizeof(FIELD*));
 	values = (FIELD**) malloc(nfields * sizeof(FIELD*));
 	units = (FIELD**) malloc(nfields * sizeof(FIELD*));
@@ -206,12 +225,19 @@ void popFields(int pdfd)
 		field_opts_off(values[i], O_ACTIVE);
 		field_opts_off(units[i], O_ACTIVE);
 
+		/* Set new page for all overflow fields */
+		/* if (i == displayNumVisibleFields()) { */
+			/* set_new_page(names[i], true); */
+		/* } */
+
 		set_field_just(values[i], JUSTIFY_RIGHT);
 
 		fields[fieldsctr] = names[i]; fieldsctr++;
 		fields[fieldsctr] = values[i]; fieldsctr++;
 		fields[fieldsctr] = units[i]; fieldsctr++;
 	}
+
+	displaySetOverflowPage();
 
 	updateFieldValues(dfields);
 
@@ -254,13 +280,15 @@ static void formResizeWindow()
 	clear();
 
 	/* Delete old window and create new one */
-	freeFields();
 	delwin(win_form);
 	delwin(win_main);
 	defineWindowSize();
+	unpost_form(form);
+	free_form(form);
 
-	/* Get new form data */
-	popFields(displayFD);
+	/* Adjust form overflow */
+	displaySetOverflowPage();
+
 	assert(fields);
 	form = new_form(fields);
 	assignFormToWin();
@@ -268,8 +296,6 @@ static void formResizeWindow()
 	formSetupWindow();
 
 	assert(form);
-
-	post_form(form);
 
 	refresh();
 	wrefresh(win_main);
