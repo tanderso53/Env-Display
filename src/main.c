@@ -336,6 +336,23 @@ void signalHandler(int sig)
 	exit(1);
 }
 
+int runNcursesInterface(int fd)
+{
+	int ret;
+
+	/* Use ncurses display mode (none others currently
+	 * available */
+	struct metric_form *m;
+
+	m = ncursesCFG(fd); /* Use default window config */
+
+	ret = metric_form_init(m);
+
+	ncursesFreeMetric(); /* The metric data must be freed */
+
+	return ret;
+}
+
 int main(int argc, char* const argv[])
 {
 	int ret;
@@ -398,15 +415,7 @@ int main(int argc, char* const argv[])
 		break;
 	}
 
-	/* Use ncurses display mode (none others currently
-	 * available */
-	struct metric_form *m;
-
-	m = ncursesCFG(fd); /* Use default window config */
-
-	ret = metric_form_init(m);
-
-	ncursesFreeMetric(); /* The metric data must be freed */
+	ret = runNcursesInterface(fd);
 
 	return ret;
 }
