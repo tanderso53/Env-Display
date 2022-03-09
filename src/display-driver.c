@@ -24,6 +24,8 @@
 #define METRIC_FLAG_WINRESIZE 0x01
 #define METRIC_FLAG_EXIT 0x02
 
+#define ARRAY_LEN(array) sizeof(array)/sizeof(array[0])
+
 static uint8_t _metric_flags = 0;
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
@@ -33,6 +35,7 @@ static FORM* form = NULL;
 static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
 static uint8_t ignore_poll_error = 0;
+static char _last_update_str[32] = {'\0'};
 
 /* Local function definitions */
 static void _update_fields(struct metric_form *mf);
@@ -44,8 +47,9 @@ static void _handle_winch(int sig);
 static void _free_fields();
 static unsigned int _fields_per_page(struct metric_form *mf);
 static void _form_setup_window();
-static void _last_updated_time(struct metric_form *mf);
+static void _last_updated_time();
 static void _form_exit();
+static void _metric_form_refresh(struct metric_form *mf);
 
 /*
 **********************************************************************
@@ -78,10 +82,7 @@ int metric_form_init(struct metric_form *mf)
 	_form_setup_window();
 
 	post_form(form);
-	_last_updated_time(mf);
-	refresh();
-	wrefresh(win_main);
-	wrefresh(win_form);
+	_metric_form_refresh(mf);
 
 	for (;;) {
 		int ret;
@@ -106,10 +107,7 @@ int metric_form_init(struct metric_form *mf)
 
 		if (ret == 0) {
 			_update_fields(mf);
-			_last_updated_time(mf);
-			refresh();
-			wrefresh(win_main);
-			wrefresh(win_form);
+			_metric_form_refresh(mf);
 		}
 	}
 }
@@ -176,24 +174,20 @@ static unsigned int _fields_per_page(struct metric_form *mf)
 	return metric_form_height(mf) / 2;
 }
 
-static void _last_updated_time(struct metric_form *mf)
+static void _last_updated_time()
 {
-	char output[32];
 	struct tm timstruct;
 	time_t curtime = time(NULL);
 
 	/* Load current time into buffer */
 	localtime_r(&curtime, &timstruct);
-	snprintf(output, 32, "%02d/%02d/%04d %02d:%02d:%02d %s",
+	snprintf(_last_update_str, ARRAY_LEN(_last_update_str) - 1,
+		 "%02d/%02d/%04d %02d:%02d:%02d %s",
 		 timstruct.tm_mon + 1, timstruct.tm_mday,
 		 timstruct.tm_year + 1900, timstruct.tm_hour,
 		 timstruct.tm_min, timstruct.tm_sec,
 		 timstruct.tm_zone);
-
-	/* Print current time to bottom of screen */
-	if (win_main)
-		mvwprintw(win_main, mf->wd.rows - 2, 2,
-			  "Last update: %s", output);
+	_last_update_str[ARRAY_LEN(_last_update_str) - 1] = '\0';
 }
 
 static void _update_fields(struct metric_form *mf)
@@ -253,6 +247,9 @@ static void _update_fields(struct metric_form *mf)
 			set_field_buffer(units[paddr], 0, ms[j].unit);
 		}
 	}
+
+	/* Update the last updated time string */
+	_last_updated_time();
 }
 
 void _allocate_fields(struct metric_form *mf)
@@ -339,9 +336,7 @@ static void _resize_window(struct metric_form *mf)
 	assert(form);
 	post_form(form);
 
-	refresh();
-	wrefresh(win_main);
-	wrefresh(win_form);
+	_metric_form_refresh(mf);
 }
 
 static void _free_fields()
@@ -428,4 +423,17 @@ static void _handle_winch(int sig)
 	assert(sig == SIGWINCH);
 	ignore_poll_error = 1;
 	_metric_flags |= METRIC_FLAG_WINRESIZE;
+}
+
+static void _metric_form_refresh(struct metric_form *mf)
+{
+	/* Print current time to bottom of screen */
+	if (win_main)
+		mvwprintw(win_main, mf->wd.rows - 2, 2,
+			  "Last update: %s", _last_update_str);
+
+	/* Refresh ncurses and all windows */
+	refresh();
+	wrefresh(win_main);
+	wrefresh(win_form);
 }
