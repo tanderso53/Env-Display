@@ -1,7 +1,6 @@
-#include "jsonparse.h"
+#include "display-driver.h"
 
 #include <form.h>
-#include <math.h>
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
@@ -9,24 +8,175 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <poll.h>
-#include <fcntl.h>
 #include <time.h>
 
 #ifndef VM_VERSION
 #define VM_VERSION "Unknown"
 #endif /* #ifndef VM_VERSION */
 
+#define DISPLAY_MAX_COLS 80
+#define DISPLAY_MIN_COLS 80
+
+#define DISPLAY_MAX_ROWS 200
+#define DISPLAY_MIN_ROWS 23
+
+/* Flags */
+#define METRIC_FLAG_WINRESIZE 0x01
+#define METRIC_FLAG_EXIT 0x02
+
+static uint8_t _metric_flags = 0;
 static FIELD** fields = NULL;
 static FIELD** names = NULL;
 static FIELD** values = NULL;
 static FIELD** units = NULL;
-static unsigned int nfields = 0;
 static FORM* form = NULL;
 static WINDOW* win_form = NULL;
 static WINDOW* win_main = NULL;
+static uint8_t ignore_poll_error = 0;
 
-void lastUpdatedTime()
+/* Local function definitions */
+static void _update_fields(struct metric_form *mf);
+static int _assign_form_to_win(struct metric_form *mf);
+static void _allocate_fields(struct metric_form *mf);
+static void _define_win_size(struct metric_form *mf);
+static void _resize_window(struct metric_form *mf);
+static void _handle_winch(int sig);
+static void _free_fields();
+static unsigned int _fields_per_page(struct metric_form *mf);
+static void _form_setup_window();
+static void _last_updated_time(struct metric_form *mf);
+static void _form_exit();
+
+/*
+**********************************************************************
+********************* API IMPLEMENTATION *****************************
+**********************************************************************
+*/
+
+int metric_form_init(struct metric_form *mf)
+{
+	assert(mf);
+
+	signal(SIGWINCH, _handle_winch);
+
+	initscr();
+
+	_define_win_size(mf);
+
+	assert(win_main);
+	assert(win_form);
+
+	_allocate_fields(mf);
+	_update_fields(mf);
+	form = new_form(fields);
+	assert(form);
+
+	if (_assign_form_to_win(mf) != 0) {
+		return 1;
+	}
+
+	_form_setup_window();
+
+	post_form(form);
+	_last_updated_time(mf);
+	refresh();
+	wrefresh(win_main);
+	wrefresh(win_form);
+
+	for (;;) {
+		int ret;
+
+		if (_metric_flags & METRIC_FLAG_WINRESIZE) {
+			_resize_window(mf);
+			_metric_flags &= ~METRIC_FLAG_WINRESIZE;
+		}
+
+		/* Exit if receive signal */
+		if (_metric_flags & METRIC_FLAG_EXIT) {
+			_form_exit();
+			return 0;
+		}
+
+		ret = mf->polldata_cb(500); /* 500 ms timout on user poll */
+
+		if (ret < 0) {
+			_form_exit();
+			return 1;
+		}
+
+		if (ret == 0) {
+			_update_fields(mf);
+			_last_updated_time(mf);
+			refresh();
+			wrefresh(win_main);
+			wrefresh(win_form);
+		}
+	}
+}
+
+unsigned int metric_form_height(struct metric_form *mf)
+{
+	return mf->wd.rows - mf->bw.top - mf->bw.bottom - 2;
+}
+
+unsigned int metric_form_width(struct metric_form *mf)
+{
+	return mf->wd.cols - mf->bw.left - mf->bw.right - 2;
+}
+
+void metric_form_exit()
+{
+	_metric_flags |= METRIC_FLAG_EXIT;
+}
+
+bool metric_is_empty(const struct metric *met)
+{
+	assert(met);
+
+	return strlen(met->name) == 0 &&
+		strlen(met->value) == 0 &&
+		strlen(met->unit) == 0 &&
+		met->page == 0 &&
+		met->slot == 0;
+}
+
+void metric_make_empty_array(struct metric *met, int len)
+{
+	assert(met);
+
+	for (int i = 0; i < len; ++i) {
+		metric_make_empty(&met[i]);
+	}
+}
+
+void metric_make_empty(struct metric *met)
+{
+	assert(met);
+
+	met->name[0] = '\0';
+	met->value[0] = '\0';
+	met->unit[0] = '\0';
+	met->page = 0;
+	met->slot = 0;
+}
+
+void metric_emerg_exit()
+{
+	_form_exit();
+}
+
+/*
+**********************************************************************
+***************** LOCAL FUNCTION IMPLEMENTATION **********************
+**********************************************************************
+*/
+
+static unsigned int _fields_per_page(struct metric_form *mf)
+{
+	return metric_form_height(mf) / 2;
+}
+
+static void _last_updated_time(struct metric_form *mf)
 {
 	char output[32];
 	struct tm timstruct;
@@ -42,130 +192,159 @@ void lastUpdatedTime()
 
 	/* Print current time to bottom of screen */
 	if (win_main)
-		mvwprintw(win_main, 28, 2, "Last update: %s", output);
+		mvwprintw(win_main, mf->wd.rows - 2, 2,
+			  "Last update: %s", output);
 }
 
-void parseData(int pdfd)
+static void _update_fields(struct metric_form *mf)
 {
-	char buff[1024];
+	assert(mf->metrics);
 
-	int readresult = read(pdfd, buff, 1023);
+	for (int i = 0; i < mf->wd.pages; ++i) {
+		int pfields = _fields_per_page(mf);
+		struct metric ms[pfields];
+		struct metric mauto[pfields];
+		int ai = 0;
 
-	if (readresult < 0) {
-		perror("Error reading file: ");
-		raise(SIGINT);
+		metric_make_empty_array(ms, pfields);
+		metric_make_empty_array(mauto, pfields);
+
+		/* Need to sort out the minuses */
+		for (int j = 0; !metric_is_empty(&mf->metrics[j]); ++j) {
+			if (mf->metrics[j].page != i)
+				continue;
+
+			if (mf->metrics[j].slot < 0 &&
+			    ai < pfields) {
+				mauto[ai] = mf->metrics[j];
+				++ai;
+			} else {
+				int addr = mf->metrics[j].slot;
+
+				if (addr >= pfields) {
+					continue;
+				}
+
+				if (!metric_is_empty(&ms[addr])) {
+					continue;
+				}
+
+				ms[addr] = mf->metrics[j];
+			}
+		}
+
+		/* Sort minuses into empty slots */
+		for (int j = 0; j < ai; ++j) {
+			for (int k = 0; k < pfields; ++k) {
+				if (metric_is_empty(&ms[k])) {
+					ms[k] = mauto[j];
+
+					break;
+				}
+			}
+		}
+
+		/* Write all fields on this page */
+		for (int j = 0; j < pfields; ++j) {
+			int paddr = j + i * pfields;
+
+			set_field_buffer(names[paddr], 0, ms[j].name);
+			set_field_buffer(values[paddr], 0, ms[j].value);
+			set_field_buffer(units[paddr], 0, ms[j].unit);
+		}
 	}
-	else if (readresult == 0) {
-		sleep(1);
-		return;
-	}
-
-	buff[readresult] = '\0';
-	lastUpdatedTime();
-
-	initializeData(buff);
-	struct datafield* df = NULL;
-	df = getDataDump(df);
-
-	int nlimit;
-
-	if ((unsigned int) numDataFields() < nfields)
-		nlimit = numDataFields();
-	else
-		nlimit = nfields;
-
-	for (int i = 0; i < nlimit; ++i) {
-		set_field_buffer(names[i], 0, df[i].name);
-		set_field_buffer(values[i], 0, df[i].value);
-		set_field_buffer(units[i], 0, df[i].unit);
-	}
-
-	clearData();
 }
 
-void popFields(int pdfd)
+void _allocate_fields(struct metric_form *mf)
 {
-	struct pollfd pfd = {
-		.fd = pdfd, /* open(parsefile, O_RDWR), */
-		.events = POLLIN
-	};
+	int nfields = _fields_per_page(mf);
+	int npages = mf->wd.pages;
 
-	printf("Polling for environmental data...\n");
-	int pollresult = poll(&pfd, 1, 60000);
-
-	if (pollresult < 0) {
-		perror("Error while reading initial data: ");
-		raise(SIGINT);
-	}
-
-	if (pollresult == 0) {
-		fprintf(stderr, "Failed to get "
-			"initial data from stream\n");
-		raise(SIGINT);
-	}
-
-	char buff[1024];
-	struct datafield* dfields = NULL;
-
-	int readresult = read(pfd.fd, buff, 1023);
-
-	if (readresult < 0) {
-		perror("Error reading file: ");
-		raise(SIGINT);
-	}
-
-	buff[readresult] = '\0';
-	lastUpdatedTime();
-
-	initializeData(buff);
-	nfields = numDataFields();
-	dfields = getDataDump(dfields);
-
-	assert(dfields);
-
-	names = (FIELD**) malloc(nfields * sizeof(FIELD*));
-	values = (FIELD**) malloc(nfields * sizeof(FIELD*));
-	units = (FIELD**) malloc(nfields * sizeof(FIELD*));
-	fields = (FIELD**) malloc((nfields * 3 + 1) * sizeof(FIELD*));
+	names = (FIELD**) malloc(nfields * npages * sizeof(FIELD*));
+	values = (FIELD**) malloc(nfields * npages * sizeof(FIELD*));
+	units = (FIELD**) malloc(nfields * npages * sizeof(FIELD*));
+	fields = (FIELD**) malloc((nfields * npages * 3 + 1) * sizeof(FIELD*));
 
 	int fieldsctr = 0;
+	int pagesctr = 0;
 
-	for (unsigned int i = 0; i < nfields; ++i) {
-		names[i] = new_field(1, 15, i * 2, 2, 0, 0);
-		values[i] = new_field(1, 15, i * 2, 17, 0, 0);
-		units[i] = new_field(1, 10, i * 2, 34, 0, 0);
+	for (int i = 0; i < nfields * npages; ++i) {
+		int row_coord = (i - (pagesctr * nfields)) * 2;
+		bool newpage = pagesctr && (! i % nfields);
 
-		set_field_buffer(names[i], 0, dfields[i].name);
-		set_field_buffer(values[i], 0, dfields[i].value);
-		set_field_buffer(units[i], 0, dfields[i].unit);
+		names[i] = new_field(1, 15, row_coord, 2, 0, 0);
+		values[i] = new_field(1, 15, row_coord, 17, 0, 0);
+		units[i] = new_field(1, 10, row_coord, 34, 0, 0);
 
 		field_opts_off(names[i], O_ACTIVE);
 		field_opts_off(values[i], O_ACTIVE);
 		field_opts_off(units[i], O_ACTIVE);
+
+		/* Signal start of new page on names only if
+		   appropriate */
+		set_new_page(names[i], newpage);
 
 		set_field_just(values[i], JUSTIFY_RIGHT);
 
 		fields[fieldsctr] = names[i]; fieldsctr++;
 		fields[fieldsctr] = values[i]; fieldsctr++;
 		fields[fieldsctr] = units[i]; fieldsctr++;
+
+		if (! (i + 1) % nfields)
+			++pagesctr;
 	}
 
 	fields[fieldsctr] = NULL;
-	clearData();
-	/* close(pfd.fd); */
 }
 
-void formDriver(int ch)
+static void _form_setup_window()
 {
-	switch (ch) {
+	assert(win_main);
+	assert(win_form);
 
-	default:
-		break;
+	box(win_main, 0, 0);
+	box(win_form, 0, 0);
 
-	}
+	/* Title Header */
+	mvwprintw(win_main, 1, 2, "Environmental Data Display Program,"
+		  " Version: %s",
+		VM_VERSION);
+
+	/* Set cursor to invisible if supported */
+	curs_set(0);
 }
 
-void formExit()
+static void _resize_window(struct metric_form *mf)
+{
+	endwin();
+	refresh();
+	clear();
+
+	/* Delete old window and create new one */
+	delwin(win_form);
+	delwin(win_main);
+	_define_win_size(mf);
+	_free_fields();
+
+	/* Adjust form overflow */
+	_allocate_fields(mf);
+	assert(fields);
+	_update_fields(mf);
+
+	form = new_form(fields);
+	_assign_form_to_win(mf);
+
+	_form_setup_window();
+
+	assert(form);
+	post_form(form);
+
+	refresh();
+	wrefresh(win_main);
+	wrefresh(win_form);
+}
+
+static void _free_fields()
 {
 	if (form) {
 		unpost_form(form);
@@ -180,75 +359,73 @@ void formExit()
 		}
 	}
 
+	free(names);
+	free(values);
+	free(units);
+	free(fields);
+
+	names = NULL;
+	values = NULL;
+	units = NULL;
+	fields = NULL;
+}
+
+static void _form_exit()
+{
+	_free_fields();
 	endwin();
 }
 
-int formRun(int pdfd)
+void _define_win_size(struct metric_form *mf)
 {
-	initscr();
-	win_main = newwin(30, /* Lines */
-			  80, /* Cols */
+	/* Set border width */
+	mf->bw.left = 2;
+	mf->bw.right = 2;
+	mf->bw.top = 2;
+	mf->bw.bottom = 2;
+
+	/* Set window frame size */
+	mf->wd.cols = COLS < DISPLAY_MAX_COLS
+		? COLS : DISPLAY_MAX_COLS;
+	mf->wd.cols = mf->wd.cols > DISPLAY_MIN_COLS
+		? mf->wd.cols : DISPLAY_MIN_COLS;
+
+	mf->wd.rows = LINES < DISPLAY_MAX_ROWS
+		? LINES : DISPLAY_MAX_ROWS;
+	mf->wd.rows = mf->wd.cols > DISPLAY_MIN_ROWS
+		? mf->wd.rows : DISPLAY_MIN_ROWS;
+
+	win_main = newwin(mf->wd.rows, /* Lines */
+			  mf->wd.cols, /* Cols */
 			  0, /* X */
 			  0); /* Y */
-	box(win_main, 0, 0);
 	win_form = derwin(win_main,
-			  26, /* Lines */
-			  76, /* Cols */
-			  2, /* X */
-			  2); /* Y */
-	box(win_form, 0, 0);
+			  mf->wd.rows - mf->bw.left - mf->bw.right, /* Lines */
+			  mf->wd.cols - mf->bw.top - mf->bw.bottom, /* Cols */
+			  mf->bw.left, /* X */
+			  mf->bw.top); /* Y */
+}
 
-	assert(win_main);
-	assert(win_form);
-
-	popFields(pdfd);
-	form = new_form(fields);
-	assert(form);
-
+static int _assign_form_to_win(struct metric_form *mf)
+{
 	if (set_form_win(form, win_main) != 0) {
 		perror("Critical Error setting main window: ");
 		return 1;
 	}
 
-	if (set_form_sub(form, derwin(win_form, 24, 74, 1, 1)) != 0) {
+	if (set_form_sub(form,
+			 derwin(win_form, metric_form_height(mf),
+				metric_form_width(mf), 1, 1)) != 0) {
 		perror("Critical Error setting sub window: ");
 		return 1;
 	}
 
-	/* Title Header */
-	mvwprintw(win_main, 1, 2, "Environmental Data Display Program,"
-		  " Version: %s",
-		VM_VERSION);
+	return 0;
+}
 
-	/* Set cursor to invisible if supported */
-	curs_set(0);
-
-	post_form(form);
-	refresh();
-	wrefresh(win_main);
-	wrefresh(win_form);
-
-	for (;;) {
-		struct pollfd pfd = {
-			.fd = pdfd, /* open(openfile, O_RDWR), */
-			.events = POLLIN
-		};
-
-		int pollresult = poll(&pfd, 1, 30000);
-
-		if (pollresult < 0) {
-			perror("Critical Error polling file: ");
-			formExit();
-			exit(1);
-		}
-		else if (pollresult == 0) {
-			continue;
-		}
-
-		parseData(pfd.fd);
-		refresh();
-		wrefresh(win_main);
-		wrefresh(win_form);
-		/* close(pfd.fd); */
-	}
+static void _handle_winch(int sig)
+{
+	assert(sig == SIGWINCH);
+	ignore_poll_error = 1;
+	_metric_flags |= METRIC_FLAG_WINRESIZE;
 }

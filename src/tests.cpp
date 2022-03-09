@@ -1,12 +1,12 @@
 #include "jsonparse.h"
 #include "display-driver.h"
+#include "data-ops.h"
 
 #include <iostream>
 #include <cstring>
 #include <cstdio>
 
 extern "C" void popFields(int pdfd);
-extern "C" void parseData(int pdfd);
 
 #define BOOST_TEST_MODULE env_display_test
 #include <boost/test/included/unit_test.hpp>
@@ -26,28 +26,29 @@ const char* infile = "{\"status\": {\"isWarmedUp\": false, \"CCS811\": \"ok\", "
 
 BOOST_AUTO_TEST_CASE(jsonparse_test)
 {
-  struct datafield* df = NULL;
+  struct datafield** df = NULL;
 
   // Initialization test
   BOOST_REQUIRE_NO_THROW(initializeData(infile));
 
   // Counting test
-  BOOST_TEST(numDataFields() == 5);
+  BOOST_TEST(numDataFields(0) == 5);
 
   BOOST_REQUIRE_NO_THROW(df = getDataDump(df));
 
   // Check that data object is not null
   BOOST_TEST(df);
+  BOOST_TEST(df[0]);
 
   // Check that data content is correct
-  BOOST_WARN(strcmp(df[0].name, "ammonia") == 0);
-  BOOST_WARN(strcmp(df[0].value, "423") == 0);
-  BOOST_WARN(strcmp(df[0].time, "1602546") == 0);
-  BOOST_WARN(strcmp(df[0].unit, "counts") == 0);
-  BOOST_WARN(strcmp(df[1].name, "temp") == 0);
-  BOOST_WARN(strcmp(df[1].value, "23.18") == 0);
-  BOOST_WARN(strcmp(df[1].time, "1602551") == 0);
-  BOOST_WARN(strcmp(df[1].unit, "degC") == 0);
+  BOOST_WARN(strcmp(df[0][0].name, "ammonia") == 0);
+  BOOST_WARN(strcmp(df[0][0].value, "423") == 0);
+  BOOST_WARN(strcmp(df[0][0].time, "1602546") == 0);
+  BOOST_WARN(strcmp(df[0][0].unit, "counts") == 0);
+  BOOST_WARN(strcmp(df[0][1].name, "temp") == 0);
+  BOOST_WARN(strcmp(df[0][1].value, "23.18") == 0);
+  BOOST_WARN(strcmp(df[0][1].time, "1602551") == 0);
+  BOOST_WARN(strcmp(df[0][1].unit, "degC") == 0);
 
   // Check clearing of data
   BOOST_CHECK_NO_THROW(clearData());
@@ -89,9 +90,52 @@ BOOST_AUTO_TEST_CASE(forms_display_test)
     return;
   }
 
-  BOOST_REQUIRE_NO_THROW(popFields(fileno(fptr)));
-  BOOST_CHECK_NO_THROW(parseData(fileno(fptr)));
-  BOOST_CHECK_NO_THROW(formExit());
+  BOOST_REQUIRE_NO_THROW(ncursesCFG(fileno(fptr)));
+  BOOST_CHECK_NO_THROW(metric_form_exit());
+  BOOST_CHECK_NO_THROW(ncursesFreeMetric());
+
+  fclose(fptr);
+}
+
+BOOST_AUTO_TEST_CASE(forms_emerg_exit)
+{
+  FILE* fptr;
+  const char* tempfile = "/tmp/env-display_test.json";
+  struct metric_form *mf = NULL;
+
+  // Write sample string to temporary file
+  fptr = fopen(tempfile, "w");
+
+  if (fptr == NULL) {
+    std::cout << "Received error " << errno << ": "
+	      << strerror(errno) << '\n';
+    BOOST_TEST_WARN(false, "Could not open file for testing");
+    return;
+  }
+
+  if (fwrite(infile, sizeof(infile[0]), strlen(infile), fptr) == 0) {
+    int error = ferror(fptr);
+    std::cout << "Received error " << error << ": "
+	      <<strerror(error) << '\n';
+    BOOST_TEST_WARN(false, "Could not write temp file");
+    fclose(fptr);
+    return;
+  }
+
+  fclose(fptr);
+
+  // Read sample string from temporary file
+  fptr = fopen(tempfile, "r");
+
+  if (fptr == NULL) {
+    BOOST_TEST_WARN(false, "Could not open file for testing");
+    return;
+  }
+
+  BOOST_CHECK_NO_THROW(mf = ncursesCFG(fileno(fptr)));
+  BOOST_TEST(mf);
+  BOOST_CHECK_NO_THROW(ncursesFreeMetric());
+  BOOST_TEST(!mf->metrics);
 
   fclose(fptr);
 }

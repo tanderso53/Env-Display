@@ -6,13 +6,14 @@
 #include <cmath>
 #include <cstdio>
 #include <csignal>
+#include <cassert>
 
 #include <iostream>
 #include <vector>
 #include <string>
 #include <sstream>
 
-struct datafield* _df = NULL;
+struct datafield** _df = NULL;
 
 class mrparser {
 public:
@@ -20,15 +21,36 @@ public:
   std::vector<std::string> values;
   std::vector<std::string> units;
   std::vector<std::string> millis;
-} parsedvalues;
+};
+
+typedef std::vector<mrparser> parsedlist;
+
+static parsedlist parsedvalues;
+
+static void loadData(const Json::Value& ds, mrparser& parsed)
+{
+  for (unsigned int i = 0; i < ds["data"].size(); ++i) {
+    const Json::Value& thisdata = ds["data"][i];
+    char thisbuf[32];
+
+    // Round values to a precision of 2
+    snprintf(thisbuf, 32, "%.2f", thisdata["value"].asDouble());
+
+    // Load parsed parameters into storage vectors
+    parsed.names.push_back(thisdata["name"].asString());
+    parsed.values.push_back(thisbuf);
+    parsed.units.push_back(thisdata["unit"].asString());
+    parsed.millis.push_back(thisdata["timemillis"].asString());
+  }
+}
 
 void initializeData(const char* data)
 {
   std::stringstream dstr(data);
-  std::istream& blah = dstr;
   Json::Value ds;
 
   try {
+    std::istream& blah = dstr;
     blah >> ds;
   }
   catch (std::exception& e) {
@@ -38,46 +60,91 @@ void initializeData(const char* data)
     raise(SIGABRT);
   }
 
-  //Json::Value& d = ds["data"];
+  // Determine data format and allocate parsedvalues as required
+  if (ds.isMember("data") && ds["data"].isArray()) {
 
-  for (unsigned int i = 0; i < ds["data"].size(); ++i) {
-    Json::Value& thisdata = ds["data"][i];
-    char thisbuf[32];
+    parsedvalues = parsedlist(1);
+    loadData(ds, parsedvalues[0]);
 
-    // Round values to a precision of 2
-    snprintf(thisbuf, 32, "%.2f", thisdata["value"].asDouble());
+  } else if (ds.isMember("output") && ds["output"].isArray()) {
 
-    // Load parsed parameters into storage vectors
-    parsedvalues.names.push_back(thisdata["name"].asString());
-    parsedvalues.values.push_back(thisbuf);
-    parsedvalues.units.push_back(thisdata["unit"].asString());
-    parsedvalues.millis.push_back(thisdata["timemillis"].asString());
+    Json::Value& o = ds["output"];
+
+    parsedvalues = parsedlist(o.size());
+
+    for (unsigned int i = 0; i < o.size(); ++i) {
+      loadData(o[i], parsedvalues[i]);
+    }
+
+  } else {
+
+    std::cerr << "In initializeData(): Unknown data format\n";
+    raise(SIGABRT);
+
   }
+
 }
 
-int numDataFields()
+int numDataFields(size_t i)
 {
-  return parsedvalues.names.size();
+  return parsedvalues[i].names.size();
+}
+
+size_t numSensors()
+{
+  return parsedvalues.size();
 }
 
 void clearData()
 {
-  parsedvalues.names.clear();
-  parsedvalues.values.clear();
-  parsedvalues.units.clear();
-  parsedvalues.millis.clear();
-  free(_df);
+  // Keep clearing array until NULL is reached
+  if (_df) {
+
+    for (size_t i = 0; i < numSensors(); ++i) {
+
+      if (_df[i]) {
+
+	free(_df[i]);
+
+      }
+
+    }
+
+    free(_df);
+  }
+
+  _df = NULL;
+
+  parsedvalues.clear();
 }
 
-struct datafield* getDataDump(struct datafield* df)
+struct datafield** getDataDump(struct datafield** df)
 {
-  _df = (struct datafield*) malloc(numDataFields() * sizeof(struct datafield));
+  if (_df) {
+    df = _df;
 
-  for (int i = 0; i < numDataFields(); ++i) {
-    strncpy(_df[i].name, parsedvalues.names[i].c_str(), 32);
-    strncpy(_df[i].value, parsedvalues.values[i].c_str(), 32);
-    strncpy(_df[i].time, parsedvalues.millis[i].c_str(), 32);
-    strncpy(_df[i].unit, parsedvalues.units[i].c_str(), 32);
+    return df;
+  }
+
+  _df = (struct datafield**) malloc(numSensors() * sizeof(struct datafield*));
+
+  assert(_df);
+
+  for (size_t i = 0; i < numSensors(); ++i) {
+    struct datafield *dfi;
+
+    _df[i] = (struct datafield*) malloc(numDataFields(i) * sizeof(struct datafield));
+
+    assert(_df[i]);
+
+    dfi = _df[i];
+
+    for (int j = 0; j < numDataFields(i); ++j) {
+      strncpy(dfi[j].name, parsedvalues[i].names[j].c_str(), 32);
+      strncpy(dfi[j].value, parsedvalues[i].values[j].c_str(), 32);
+      strncpy(dfi[j].time, parsedvalues[i].millis[j].c_str(), 32);
+      strncpy(dfi[j].unit, parsedvalues[i].units[j].c_str(), 32);
+    }
   }
 
   df = _df;
