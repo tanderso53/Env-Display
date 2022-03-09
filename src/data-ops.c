@@ -193,8 +193,23 @@ struct metric_form *ncursesCFG(int pdfd)
 
 void ncursesFreeMetric()
 {
+	struct borderwidth emptybw = {0};
+	struct windim emptywd = {0};
 	if (_metrics)
 		free(_metrics);
+
+	_metrics = NULL;
+
+	_mf.metrics = NULL;
+	_mf.bw = emptybw;
+	_mf.wd = emptywd;
+	_mf.polldata_cb = NULL;
+}
+
+void ncursesEmergExit()
+{
+	metric_emerg_exit();
+	ncursesFreeMetric();
 }
 
 void _allocateMetric(struct datafield **df)

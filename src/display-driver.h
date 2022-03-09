@@ -139,6 +139,9 @@ extern "C" {
 /** Sets the exit flag in the metric form driver */
 	void metric_form_exit();
 
+/** Kill form immediately without returning to the main form loop */
+	void metric_emerg_exit();
+
 #ifdef __cplusplus
 }
 #endif /* #ifdef __cplusplus */

@@ -325,14 +325,18 @@ void closeDescriptor()
 
 void signalHandler(int sig)
 {
-	metric_form_exit();
-	closeDescriptor();
-	printf("Received signal %d: %s\n", sig, strsignal(sig));
-
+	/* If friendly signal, tell ncurses to exit gracefully */
 	if (sig == SIGINT || sig == SIGTERM) {
+		metric_form_exit();
 		return;
 	}
 
+	/* For other signals, exit immediately with error condition */
+	ncursesEmergExit();
+	closeDescriptor();
+
+	
+	printf("Received signal %d: %s\n", sig, strsignal(sig));
 	exit(1);
 }
 
@@ -415,7 +419,9 @@ int main(int argc, char* const argv[])
 		break;
 	}
 
+	/* Run UI */
 	ret = runNcursesInterface(fd);
+	closeDescriptor();
 
 	return ret;
 }

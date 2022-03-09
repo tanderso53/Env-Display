@@ -160,6 +160,11 @@ void metric_make_empty(struct metric *met)
 	met->slot = 0;
 }
 
+void metric_emerg_exit()
+{
+	_form_exit();
+}
+
 /*
 **********************************************************************
 ***************** LOCAL FUNCTION IMPLEMENTATION **********************
