@@ -96,3 +96,46 @@ BOOST_AUTO_TEST_CASE(forms_display_test)
 
   fclose(fptr);
 }
+
+BOOST_AUTO_TEST_CASE(forms_emerg_exit)
+{
+  FILE* fptr;
+  const char* tempfile = "/tmp/env-display_test.json";
+  struct metric_form *mf = NULL;
+
+  // Write sample string to temporary file
+  fptr = fopen(tempfile, "w");
+
+  if (fptr == NULL) {
+    std::cout << "Received error " << errno << ": "
+	      << strerror(errno) << '\n';
+    BOOST_TEST_WARN(false, "Could not open file for testing");
+    return;
+  }
+
+  if (fwrite(infile, sizeof(infile[0]), strlen(infile), fptr) == 0) {
+    int error = ferror(fptr);
+    std::cout << "Received error " << error << ": "
+	      <<strerror(error) << '\n';
+    BOOST_TEST_WARN(false, "Could not write temp file");
+    fclose(fptr);
+    return;
+  }
+
+  fclose(fptr);
+
+  // Read sample string from temporary file
+  fptr = fopen(tempfile, "r");
+
+  if (fptr == NULL) {
+    BOOST_TEST_WARN(false, "Could not open file for testing");
+    return;
+  }
+
+  BOOST_CHECK_NO_THROW(mf = ncursesCFG(fileno(fptr)));
+  BOOST_TEST(mf);
+  BOOST_CHECK_NO_THROW(ncursesFreeMetric());
+  BOOST_TEST(!mf->metrics);
+
+  fclose(fptr);
+}

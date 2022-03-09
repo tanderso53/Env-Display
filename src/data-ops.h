@@ -24,6 +24,8 @@ extern "C" {
 
 	void ncursesFreeMetric();
 
+	void ncursesEmergExit();
+
 #ifdef __cplusplus
 }
 #endif /* #ifdef __cplusplus */
