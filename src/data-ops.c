@@ -81,13 +81,13 @@ struct datafield **initialDataTransaction(int pdfd,
 
 	if (pollresult < 0) {
 		perror("Error while reading initial data: ");
-		raise(SIGINT);
+		raise(SIGABRT);
 	}
 
 	if (pollresult == 0) {
 		fprintf(stderr, "Failed to get "
 			"initial data from stream\n");
-		raise(SIGINT);
+		raise(SIGABRT);
 	}
 
 	return parseData(pdfd, dfields);
